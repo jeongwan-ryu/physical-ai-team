@@ -1,0 +1,15 @@
+# torch는 Dockerfile에서 CPU 전용 인덱스로 먼저 설치함 (여기 버전과 동일하게 유지)
+torch==2.4.1
+setuptools
+numpy==1.26.4
+paddlepaddle==2.6.2
+paddleocr==2.8.1
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+sentence-transformers==3.0.1
+transformers==4.44.2
+huggingface_hub==0.24.6
+supabase==2.7.4
+pillow==10.4.0
+pillow-heif==0.18.0
+google-genai==1.2.0

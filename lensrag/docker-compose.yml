@@ -1,0 +1,25 @@
+services:
+  api:
+    build: { context: ., dockerfile: api/Dockerfile }
+    ports: ["8000:8000"]          # 0.0.0.0으로 열려서 같은 Wi-Fi의 폰이 접속 가능
+    env_file: .env
+    environment:
+      - RAG_URL=http://rag:8001
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., dockerfile: worker/Dockerfile }
+    env_file: .env
+    volumes:
+      - ./models/hf:/root/.cache
+      - ./models/paddleocr:/root/.paddleocr
+      - ./models/paddlex:/root/.paddlex
+    restart: unless-stopped
+
+  rag:
+    build: { context: ., dockerfile: rag/Dockerfile }
+    env_file: .env
+    volumes:
+      - ./models/hf:/root/.cache
+    restart: unless-stopped
+    # 포트는 외부에 열지 않음 (api만 내부 주소 http://rag:8001 로 호출)
