@@ -27,7 +27,9 @@ def load_answers() -> dict[int, str]:
 def similarity(ocr_text: str, answer: str) -> float:
     a = " ".join(ocr_text.split()).lower()
     b = " ".join(answer.split()).lower()
-    return difflib.SequenceMatcher(None, a, b).ratio() * 100
+    # autojunk=False: 기본값(True)이면 200자 넘는 글에서 공백·e 같은 흔한 글자를 무시해
+    # 거의 똑같은 글도 22%처럼 엉뚱하게 낮은 점수가 나온다
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() * 100
 
 
 def check(path: Path, answers: dict[int, str]) -> float | None:

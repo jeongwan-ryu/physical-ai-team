@@ -43,19 +43,22 @@ def clean_text(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-_CARD_TOKEN = re.compile(r"(?<![0-9A-Za-z])([0-9Oo]{3})(?![0-9A-Za-z])")
+def extract_card_no(text: str) -> int | None:
+    """첫 줄에서 001~100 사이 3자리 카드 번호를 찾는다.
 
-
-def extract_card_no(text: str, head_lines: int = 5) -> int | None:
-    """앞쪽 몇 줄에서 001~100 사이 3자리 카드 번호를 찾는다. 'O04'처럼 0을 O로 읽은 경우도 보정."""
-    for line in text.splitlines()[:head_lines]:
-        for token in _CARD_TOKEN.findall(line):
-            if not any(ch.isdigit() for ch in token):
-                continue  # "Ooo" 같은 글자만 있는 경우 제외
-            value = int(token.replace("O", "0").replace("o", "0"))
-            if 1 <= value <= 100:
-                return value
-    return None
+    - 카드 번호는 카드 맨 위에 있어서 항상 첫 줄로 정렬된다. 본문 숫자(0.032, 100 °C 등)를
+      번호로 착각하지 않도록 첫 줄만 본다. 못 읽으면 None (틀린 번호보다 안전).
+    - 번호에 글자 간격이 있어 "0 0 4"처럼 띄어 읽히므로 공백을 지우고 본다.
+    - 흐린 앞자리 0을 O나 6으로 읽는 경우를 보정한다 (번호는 001~100이라 6xx는 나올 수 없음).
+    """
+    first = text.splitlines()[0] if text else ""
+    digits = re.sub(r"\s+", "", first).replace("O", "0").replace("o", "0")
+    if not re.fullmatch(r"\d{3}", digits):
+        return None
+    if digits[0] == "6":
+        digits = "0" + digits[1:]
+    value = int(digits)
+    return value if 1 <= value <= 100 else None
 
 
 def join_lines(boxes: list[tuple[float, float, float, str]]) -> str:
@@ -83,13 +86,15 @@ class PaddleEngine:
     def __init__(self):
         from paddleocr import PaddleOCR
 
-        self.ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        # 방향 보정(angle cls)은 끈다: 작은 카드 번호 줄을 180도 뒤집어 읽음 (099 -> "660").
+        # 사진 회전은 preprocess()의 EXIF 보정으로 이미 처리된다.
+        self.ocr = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
 
     def __call__(self, img: Image.Image) -> str:
         import numpy as np
 
         bgr = np.array(img)[:, :, ::-1].copy()  # PaddleOCR은 OpenCV와 같은 BGR 배열을 받음
-        result = self.ocr.ocr(bgr, cls=True)
+        result = self.ocr.ocr(bgr, cls=False)
         return paddle_result_to_text(result)
 
 

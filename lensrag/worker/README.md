@@ -11,6 +11,7 @@
 | `ocr_engine.py` | 전처리, OCR 엔진 3종(paddle / gemini / fake), 카드 번호 추출 |
 | `worker.py` | 메인 루프 (1초 polling) |
 | `test_local.py` | DB 없이 사진만으로 OCR 결과·원문 대비 유사도 확인 |
+| `test_card_no.py` | 카드 번호 추출 규칙 확인 (`python -m worker.test_card_no`) |
 
 함께 들어 있는 `shared/`(sb.py, embed.py)와 `demo/`(컨베이어 페이지, passages.json)는 리드가 공유하는 것과 같은 내용입니다. 프로젝트 루트에 그대로 두면 됩니다.
 
@@ -65,7 +66,7 @@ docker compose up worker
 ## 인식이 잘 안 될 때
 
 - `test_local` 유사도가 낮으면 먼저 촬영 조건을 바꿉니다: 컨베이어 페이지 글자 크기·카드 높이 키우기, 모니터 밝기 올리기, 정면에서 반사광 없이, 카드 한 장이 화면을 꽉 채우게.
-- 카드 번호를 자주 못 읽으면 `ocr_engine.py`의 `extract_card_no(head_lines=5)` 값을 늘려봅니다.
+- 카드 번호는 OCR 결과의 **첫 줄**에서만 찾습니다 (본문 숫자를 번호로 착각하지 않도록). 자주 못 읽으면 사진 위쪽에 카드 번호 말고 다른 글자가 찍히지 않았는지 확인하고, 카드 한 장만 화면에 들어오게 찍습니다.
 - 잡음 줄이 많이 섞이면 `MIN_CONFIDENCE`(기본 0.5)를 0.7 정도로 올립니다.
 - 큰 글자가 뭉개지면 `MAX_SIDE`(기본 1600)를 2000으로 올립니다 (대신 느려짐).
 
