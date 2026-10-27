@@ -5,6 +5,8 @@ api만 내부 주소 http://rag:8001/search 로 호출한다.
 Supabase·임베딩·Gemini 호출이 전부 동기라서 엔드포인트는 일반 def로 둔다 (FastAPI가 스레드풀에서 실행).
 """
 import os
+import re
+from difflib import SequenceMatcher
 
 from fastapi import FastAPI, HTTPException
 from google import genai
@@ -18,6 +20,8 @@ RAG_FAKE = os.environ.get("RAG_FAKE", "") == "1"
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash-lite"
 GEMINI_TIMEOUT_MS = 20_000  # api가 rag를 30초 기다리므로 그보다 먼저 끊어야 sources라도 보여줄 수 있음
 MATCH_COUNT = 5
+FETCH_COUNT = 20  # 같은 카드를 여러 번 찍은 지문을 걸러내고도 서로 다른 지문 5개가 남도록 넉넉히 가져옴
+DUPLICATE_RATIO = 0.6  # 실측: 같은 카드를 다시 찍은 OCR 결과끼리 0.70~0.96, 다른 카드끼리 0.13~0.30
 
 NO_PASSAGES_ANSWER = "아직 검색 가능한 지문이 없습니다. 먼저 카드를 촬영해 주세요."
 FAKE_ANSWER = "(테스트) 검색은 정상 동작합니다"
@@ -26,6 +30,8 @@ PROMPT = """아래 지문들은 영어 카드를 사진으로 찍어 OCR한 결�
 지문 내용만 근거로 질문에 한국어로 간결하게 답하라.
 - 숫자와 고유명사는 지문에 적힌 표기 그대로 쓴다.
 - 답의 근거가 된 카드 번호를 [카드 004] 형식으로 표시한다.
+- 질문이 "museum closing time"처럼 키워드나 주제어뿐이면, 그 주제를 다룬 지문의 내용을 2~3문장으로 요약해 답한다.
+- 지문 제목만 그대로 옮겨 적지 말고 본문 내용으로 답한다.
 - 지문에서 근거를 찾을 수 없으면 "제공된 지문에서 찾을 수 없습니다"라고만 답한다.
 
 [지문]
@@ -50,11 +56,38 @@ def card_label(card_no: int | None) -> str:
     return f"[카드 {card_no:03d}]" if card_no is not None else "[카드 ?]"
 
 
+def normalize(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def is_duplicate(row: dict, kept: list[dict]) -> bool:
+    """같은 카드 번호이거나, 번호를 못 읽었어도 글자가 거의 같으면 같은 카드를 다시 찍은 것으로 본다."""
+    text = normalize(row["content"])
+    for k in kept:
+        if row["card_no"] is not None and row["card_no"] == k["card_no"]:
+            return True
+        if SequenceMatcher(None, text, normalize(k["content"]), autojunk=False).ratio() >= DUPLICATE_RATIO:
+            return True
+    return False
+
+
+def dedupe(rows: list[dict]) -> list[dict]:
+    """점수 순으로 보면서 이미 고른 지문과 겹치는 건 건너뛰고, 서로 다른 지문 MATCH_COUNT개를 고른다."""
+    kept: list[dict] = []
+    for row in rows:
+        if not is_duplicate(row, kept):
+            kept.append(row)
+        if len(kept) == MATCH_COUNT:
+            break
+    return kept
+
+
 def generate_answer(query: str, sources: list[dict]) -> str:
     passages = "\n\n".join(f"{card_label(s['card_no'])} {s['content']}" for s in sources)
     res = gemini.models.generate_content(
         model=GEMINI_MODEL,
         contents=PROMPT.format(passages=passages, query=query),
+        config=types.GenerateContentConfig(temperature=0),  # 같은 질문이면 같은 답이 나오게
     )
     return (res.text or "").strip() or "답변 생성 중 오류가 발생했습니다: 빈 응답"
 
@@ -71,11 +104,11 @@ def search(req: SearchRequest):
         raise HTTPException(400, "질문이 비어 있습니다.")
 
     rows = sb.rpc(
-        "match_passages", {"query_embedding": embed_query(query), "match_count": MATCH_COUNT}
+        "match_passages", {"query_embedding": embed_query(query), "match_count": FETCH_COUNT}
     ).execute().data
     sources = [
         {"id": r["id"], "card_no": r["card_no"], "content": r["content"], "score": round(r["score"], 2)}
-        for r in rows
+        for r in dedupe(rows)
     ]
 
     if not sources:
