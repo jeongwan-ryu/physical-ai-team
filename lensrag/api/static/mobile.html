@@ -8,11 +8,34 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; }
-  .status { padding: 20px 16px 12px; text-align: center; font-size: 22px; font-weight: 700; min-height: 72px; }
+  .status { padding: 16px 16px 8px; text-align: center; font-size: 22px; font-weight: 700; min-height: 56px; }
   .status.ok { color: #4ade80; }
   .status.err { color: #f87171; }
-  .sub { text-align: center; font-size: 15px; color: #94a3b8; padding: 0 16px; }
-  .shoot { flex: 1; display: flex; align-items: center; justify-content: center; margin: 16px; border-radius: 24px; background: #1d4ed8; color: #fff; font-size: 40px; font-weight: 800; user-select: none; cursor: pointer; }
+  .status.live { color: #facc15; }
+  .sub { text-align: center; font-size: 15px; color: #94a3b8; padding: 0 16px; min-height: 20px; }
+
+  /* 실시간 카메라 */
+  .preview { position: relative; flex: 1; margin: 12px 16px 0; border-radius: 20px; overflow: hidden; background: #000; display: none; }
+  .preview.show { display: block; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .flash.on { opacity: .5; transition: none; }
+  .rec { position: absolute; top: 12px; left: 12px; padding: 4px 10px; border-radius: 999px; background: #dc2626; font-size: 14px; font-weight: 700; display: none; }
+  .rec.show { display: block; }
+  .controls { display: none; gap: 10px; margin: 12px 16px 20px; }
+  .controls.show { display: flex; }
+  .controls button { flex: 1; padding: 18px 8px; font-size: 20px; font-weight: 800; border: none; border-radius: 16px; color: #fff; background: #1d4ed8; }
+  .controls button:active { filter: brightness(.85); }
+  .controls button.stop { background: #dc2626; }
+  .controls button.single { flex: 0 0 30%; background: #334155; }
+  .interval { display: none; justify-content: center; gap: 8px; margin-top: 12px; }
+  .interval.show { display: flex; }
+  .interval button { padding: 8px 14px; font-size: 15px; border: 1px solid #475569; border-radius: 999px; background: transparent; color: #cbd5e1; }
+  .interval button.on { background: #f8fafc; color: #0f172a; border-color: #f8fafc; font-weight: 700; }
+
+  /* HTTPS가 아니거나 카메라를 못 쓸 때: 기존 한 장씩 촬영 */
+  .shoot { flex: 1; display: none; align-items: center; justify-content: center; margin: 16px; border-radius: 24px; background: #1d4ed8; color: #fff; font-size: 40px; font-weight: 800; user-select: none; cursor: pointer; }
+  .shoot.show { display: flex; }
   .shoot:active { background: #1e40af; }
   .shoot.busy { background: #334155; pointer-events: none; }
   input[type=file] { display: none; }
@@ -22,38 +45,153 @@
 </head>
 <body>
   <div class="status" id="status">PC와 연결됨</div>
-  <div class="sub" id="sub">버튼을 눌러 화면을 촬영하세요</div>
+  <div class="sub" id="sub">카메라를 준비하는 중…</div>
+
+  <div class="interval" id="interval">
+    <button data-ms="1000">1초</button>
+    <button data-ms="2000" class="on">2초</button>
+    <button data-ms="3000">3초</button>
+  </div>
+  <div class="preview" id="preview">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="rec" id="rec">● 자동 촬영 중</div>
+    <div class="flash" id="flash"></div>
+  </div>
+  <div class="controls" id="controls">
+    <button class="single" id="single">한 장</button>
+    <button id="toggle">▶ 자동 촬영 시작</button>
+  </div>
+
   <label class="shoot" id="shoot" for="file">📷 촬영</label>
   <input type="file" id="file" accept="image/*" capture="environment">
   <button class="retry" id="retry">다시 올리기</button>
 
 <script>
 const sessionId = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
-const input = document.getElementById("file");
-const statusEl = document.getElementById("status");
-const subEl = document.getElementById("sub");
-const shootEl = document.getElementById("shoot");
-const retryEl = document.getElementById("retry");
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status"), subEl = $("sub");
+const video = $("video"), toggleEl = $("toggle"), recEl = $("rec"), flashEl = $("flash");
+const input = $("file"), shootEl = $("shoot"), retryEl = $("retry");
+
+const MAX_FAILS = 3;           // 연속으로 이만큼 실패하면 자동 촬영을 멈춤
 let count = 0;
+let intervalMs = 2000;
+let timer = null;
+let uploading = false;          // 업로드 중에 다음 프레임이 오면 쌓지 않고 건너뜀
+let fails = 0;
 let pendingFile = null;
+let wakeLock = null;
 
 function setStatus(text, cls, sub) {
   statusEl.textContent = text;
   statusEl.className = "status " + (cls || "");
-  subEl.textContent = sub || "";
+  if (sub !== undefined) subEl.textContent = sub;
 }
 
-async function upload(file) {
+async function sendBlob(blob, name) {
+  const form = new FormData();
+  form.append("file", blob, name);
+  const res = await fetch(`/api/upload?session_id=${encodeURIComponent(sessionId)}`, { method: "POST", body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.detail || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+// ---------- 실시간 카메라 ----------
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+  });
+  video.srcObject = stream;
+  await video.play();
+  $("preview").classList.add("show");
+  $("controls").classList.add("show");
+  $("interval").classList.add("show");
+  setStatus("카메라 준비 완료", "ok", "컨베이어 화면을 비추고 자동 촬영을 시작하세요");
+}
+
+function captureFrame() {
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+}
+
+async function shootFrame() {
+  if (uploading || !video.videoWidth) return;
+  uploading = true;
+  flashEl.classList.add("on");
+  requestAnimationFrame(() => flashEl.classList.remove("on"));
+  try {
+    const blob = await captureFrame();
+    await sendBlob(blob, `frame-${Date.now()}.jpg`);
+    count++;
+    fails = 0;
+    setStatus(`${count}장 업로드됨`, timer ? "live" : "ok", timer ? `${intervalMs / 1000}초마다 촬영 중` : "");
+  } catch (e) {
+    fails++;
+    setStatus("업로드 실패", "err", e.message || "네트워크 오류");
+    if (e.status === 404 || fails >= MAX_FAILS) stopAuto();
+  } finally {
+    uploading = false;
+  }
+}
+
+async function startAuto() {
+  fails = 0;
+  timer = setInterval(shootFrame, intervalMs);
+  shootFrame();
+  toggleEl.textContent = "■ 정지";
+  toggleEl.classList.add("stop");
+  recEl.classList.add("show");
+  setStatus(`${count}장 업로드됨`, "live", `${intervalMs / 1000}초마다 촬영 중`);
+  // 자동 촬영 중에 화면이 꺼지지 않게 (지원하는 브라우저만)
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+}
+
+function stopAuto() {
+  clearInterval(timer);
+  timer = null;
+  toggleEl.textContent = "▶ 자동 촬영 시작";
+  toggleEl.classList.remove("stop");
+  recEl.classList.remove("show");
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  if (!statusEl.classList.contains("err")) setStatus(`${count}장 업로드됨`, "ok", "자동 촬영을 멈췄습니다");
+}
+
+toggleEl.addEventListener("click", () => (timer ? stopAuto() : startAuto()));
+$("single").addEventListener("click", shootFrame);
+$("interval").addEventListener("click", (e) => {
+  const ms = Number(e.target.dataset.ms);
+  if (!ms) return;
+  intervalMs = ms;
+  document.querySelectorAll("#interval button").forEach((b) => b.classList.toggle("on", b === e.target));
+  if (timer) { clearInterval(timer); timer = setInterval(shootFrame, intervalMs); }
+});
+// 다른 앱으로 갔다 오면 자동 촬영은 멈춰 둠 (백그라운드에서는 카메라 프레임이 안 나옴)
+document.addEventListener("visibilitychange", () => { if (document.hidden && timer) stopAuto(); });
+
+// ---------- HTTPS가 아닐 때: 한 장씩 촬영 ----------
+
+function useFileFallback(reason) {
+  shootEl.classList.add("show");
+  setStatus("PC와 연결됨", "", reason);
+}
+
+async function uploadFile(file) {
   pendingFile = file;
   retryEl.classList.remove("show");
   shootEl.classList.add("busy");
   setStatus("업로드 중…", "", file.name);
   try {
-    const form = new FormData();
-    form.append("file", file, file.name || "photo.jpg");
-    const res = await fetch(`/api/upload?session_id=${encodeURIComponent(sessionId)}`, { method: "POST", body: form });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    await sendBlob(file, file.name || "photo.jpg");
     count++;
     pendingFile = null;
     setStatus(`완료 ✓ (${count}장째)`, "ok", "바로 다음 장을 촬영하세요");
@@ -68,10 +206,20 @@ async function upload(file) {
 input.addEventListener("change", () => {
   const file = input.files && input.files[0];
   input.value = ""; // 같은 input으로 바로 다시 촬영할 수 있게 초기화
-  if (file) upload(file);
+  if (file) uploadFile(file);
 });
+retryEl.addEventListener("click", () => { if (pendingFile) uploadFile(pendingFile); });
 
-retryEl.addEventListener("click", () => { if (pendingFile) upload(pendingFile); });
+// ---------- 시작 ----------
+
+if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+  useFileFallback("실시간 촬영은 https 주소에서만 됩니다. 버튼을 눌러 한 장씩 촬영하세요");
+} else {
+  startCamera().catch((e) => {
+    const denied = e.name === "NotAllowedError";
+    useFileFallback(denied ? "카메라 권한이 거부되었습니다. 한 장씩 촬영하세요" : `카메라를 열 수 없습니다 (${e.name})`);
+  });
+}
 </script>
 </body>
 </html>

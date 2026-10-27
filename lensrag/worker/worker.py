@@ -10,6 +10,7 @@ from worker.ocr_engine import OCR_ENGINE, clean_text, extract_card_no, get_engin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("worker")
+log.setLevel(logging.INFO)  # PaddleOCR이 root 로거를 WARNING으로 바꿔도 진행 로그가 보이게
 
 POLL_SECONDS = 1.0
 MIN_CHARS = 20  # 이보다 짧으면 "거의 못 읽음"으로 처리
