@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>촬영</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; }
+  .status { padding: 20px 16px 12px; text-align: center; font-size: 22px; font-weight: 700; min-height: 72px; }
+  .status.ok { color: #4ade80; }
+  .status.err { color: #f87171; }
+  .sub { text-align: center; font-size: 15px; color: #94a3b8; padding: 0 16px; }
+  .shoot { flex: 1; display: flex; align-items: center; justify-content: center; margin: 16px; border-radius: 24px; background: #1d4ed8; color: #fff; font-size: 40px; font-weight: 800; user-select: none; cursor: pointer; }
+  .shoot:active { background: #1e40af; }
+  .shoot.busy { background: #334155; pointer-events: none; }
+  input[type=file] { display: none; }
+  .retry { display: none; margin: 0 16px 24px; padding: 20px; font-size: 22px; font-weight: 700; border: none; border-radius: 16px; background: #f87171; color: #0f172a; }
+  .retry.show { display: block; }
+</style>
+</head>
+<body>
+  <div class="status" id="status">PC와 연결됨</div>
+  <div class="sub" id="sub">버튼을 눌러 화면을 촬영하세요</div>
+  <label class="shoot" id="shoot" for="file">📷 촬영</label>
+  <input type="file" id="file" accept="image/*" capture="environment">
+  <button class="retry" id="retry">다시 올리기</button>
+
+<script>
+const sessionId = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
+const input = document.getElementById("file");
+const statusEl = document.getElementById("status");
+const subEl = document.getElementById("sub");
+const shootEl = document.getElementById("shoot");
+const retryEl = document.getElementById("retry");
+let count = 0;
+let pendingFile = null;
+
+function setStatus(text, cls, sub) {
+  statusEl.textContent = text;
+  statusEl.className = "status " + (cls || "");
+  subEl.textContent = sub || "";
+}
+
+async function upload(file) {
+  pendingFile = file;
+  retryEl.classList.remove("show");
+  shootEl.classList.add("busy");
+  setStatus("업로드 중…", "", file.name);
+  try {
+    const form = new FormData();
+    form.append("file", file, file.name || "photo.jpg");
+    const res = await fetch(`/api/upload?session_id=${encodeURIComponent(sessionId)}`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    count++;
+    pendingFile = null;
+    setStatus(`완료 ✓ (${count}장째)`, "ok", "바로 다음 장을 촬영하세요");
+  } catch (e) {
+    setStatus("업로드 실패", "err", e.message || "네트워크 오류");
+    retryEl.classList.add("show");
+  } finally {
+    shootEl.classList.remove("busy");
+  }
+}
+
+input.addEventListener("change", () => {
+  const file = input.files && input.files[0];
+  input.value = ""; // 같은 input으로 바로 다시 촬영할 수 있게 초기화
+  if (file) upload(file);
+});
+
+retryEl.addEventListener("click", () => { if (pendingFile) upload(pendingFile); });
+</script>
+</body>
+</html>

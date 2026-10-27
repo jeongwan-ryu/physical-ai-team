@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LensRAG 대시보드</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif; background: #f4f5f7; color: #1d1f23; }
+  header { display: flex; gap: 24px; align-items: flex-start; padding: 20px 24px; background: #fff; border-bottom: 1px solid #e2e4e8; flex-wrap: wrap; }
+  .qr-box { display: flex; gap: 16px; align-items: center; }
+  .qr-box img { width: 180px; height: 180px; image-rendering: pixelated; border: 1px solid #e2e4e8; border-radius: 8px; background: #fff; }
+  .qr-info { display: flex; flex-direction: column; gap: 8px; max-width: 320px; }
+  .url { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; color: #475467; }
+  .conn { font-weight: 700; font-size: 18px; }
+  .conn.wait { color: #b54708; }
+  .conn.ok { color: #067647; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #c9cdd4; border-radius: 6px; background: #fff; cursor: pointer; }
+  button.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  button:disabled { opacity: .5; cursor: default; }
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; align-content: flex-start; }
+  .summary .stat { background: #f4f5f7; border-radius: 8px; padding: 10px 14px; min-width: 100px; }
+  .stat .n { font-size: 24px; font-weight: 700; }
+  .stat .l { font-size: 12px; color: #475467; }
+  main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 20px; padding: 20px 24px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  section { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 16px; min-width: 0; }
+  h2 { margin: 0 0 12px; font-size: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+  th { color: #475467; font-weight: 600; }
+  td.content { color: #344054; }
+  td.err { color: #b42318; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .b-uploaded { background: #eff4ff; color: #1d4ed8; }
+  .b-processing { background: #fef6e7; color: #b54708; }
+  .b-done { background: #ecfdf3; color: #067647; }
+  .b-duplicate { background: #f2f4f7; color: #475467; }
+  .b-failed { background: #fef3f2; color: #b42318; }
+  .empty { color: #667085; padding: 16px 0; }
+  .search-row { display: flex; gap: 8px; }
+  .search-row input { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid #c9cdd4; border-radius: 6px; }
+  .answer { margin-top: 14px; white-space: pre-wrap; line-height: 1.6; }
+  .answer.error { color: #b42318; }
+  .source { margin-top: 10px; padding: 10px; background: #f9fafb; border-radius: 8px; font-size: 13px; }
+  .source .meta { font-weight: 600; margin-bottom: 4px; }
+  .muted { color: #667085; }
+</style>
+</head>
+<body>
+<header>
+  <div class="qr-box">
+    <img id="qr" alt="QR 코드">
+    <div class="qr-info">
+      <div id="conn" class="conn wait">세션 만드는 중…</div>
+      <div class="url" id="url"></div>
+      <div><button id="new-session">새 세션</button></div>
+    </div>
+  </div>
+  <div class="summary" id="summary"></div>
+</header>
+
+<main>
+  <section>
+    <h2>업로드된 사진</h2>
+    <table>
+      <thead><tr><th>카드</th><th>파일명</th><th>상태</th><th>OCR 내용</th><th>오류</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">아직 업로드된 사진이 없습니다. 폰으로 QR을 찍고 촬영하세요.</div>
+  </section>
+
+  <section>
+    <h2>질문하기</h2>
+    <form class="search-row" id="search-form">
+      <input id="query" placeholder="예: Q3 총 처리량은 얼마야?" autocomplete="off">
+      <button class="primary" id="search-btn">검색</button>
+    </form>
+    <div id="result"></div>
+  </section>
+</main>
+
+<script>
+const STATUSES = ["uploaded", "processing", "done", "duplicate", "failed"];
+const POLL_MS = 2000;
+let sessionId = null;
+let polling = false;
+
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function getJson(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
+
+async function newSession() {
+  $("new-session").disabled = true;
+  $("conn").textContent = "세션 만드는 중…";
+  $("conn").className = "conn wait";
+  try {
+    const s = await getJson("/api/sessions", { method: "POST" });
+    sessionId = s.session_id;
+    $("qr").src = "data:image/png;base64," + s.qr_png;
+    $("url").textContent = s.url;
+    $("conn").textContent = "폰 연결 대기 중";
+    renderRows([]);
+    await refresh();
+  } catch (e) {
+    $("conn").textContent = "세션 생성 실패: " + e.message;
+  } finally {
+    $("new-session").disabled = false;
+  }
+}
+
+function renderSummary(rows) {
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+  rows.forEach((r) => { if (r.status in counts) counts[r.status]++; });
+  $("summary").innerHTML = STATUSES.map((s) =>
+    `<div class="stat"><div class="n">${counts[s]}</div><div class="l"><span class="badge b-${s}">${s}</span></div></div>`
+  ).join("");
+}
+
+function renderRows(rows) {
+  renderSummary(rows);
+  $("empty").style.display = rows.length ? "none" : "block";
+  $("rows").innerHTML = rows.map((r) => {
+    const content = r.content ? esc(r.content.slice(0, 120)) + (r.content.length > 120 ? "…" : "") : '<span class="muted">-</span>';
+    const card = r.card_no != null ? String(r.card_no).padStart(3, "0") : "-";
+    return `<tr>
+      <td>${card}</td>
+      <td>${esc(r.filename)}</td>
+      <td><span class="badge b-${esc(r.status)}">${esc(r.status)}</span></td>
+      <td class="content">${content}</td>
+      <td class="err">${esc(r.error)}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function refresh() {
+  if (!sessionId || polling) return;
+  polling = true;
+  const id = sessionId;
+  try {
+    const [s, rows] = await Promise.all([
+      getJson(`/api/sessions/${encodeURIComponent(id)}`),
+      getJson(`/api/passages?session_id=${encodeURIComponent(id)}`),
+    ]);
+    if (id !== sessionId) return; // 그 사이 새 세션으로 바뀜
+    $("conn").textContent = s.connected ? "연결됨" : "폰 연결 대기 중";
+    $("conn").className = "conn " + (s.connected ? "ok" : "wait");
+    renderRows(rows);
+  } catch (e) {
+    console.warn("갱신 실패", e);
+  } finally {
+    polling = false;
+  }
+}
+
+async function search(event) {
+  event.preventDefault();
+  const query = $("query").value.trim();
+  if (!query) return;
+  $("search-btn").disabled = true;
+  $("result").innerHTML = '<div class="answer muted">답변 생성 중…</div>';
+  try {
+    const data = await getJson("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const sources = (data.sources || []).map((src) => `
+      <div class="source">
+        <div class="meta">카드 ${src.card_no != null ? String(src.card_no).padStart(3, "0") : "?"} · 점수 ${Number(src.score).toFixed(2)}</div>
+        <div>${esc((src.content || "").slice(0, 200))}${(src.content || "").length > 200 ? "…" : ""}</div>
+      </div>`).join("");
+    $("result").innerHTML = `<div class="answer">${esc(data.answer)}</div>` +
+      (sources ? `<h2 style="margin-top:16px">근거 지문</h2>${sources}` : "");
+  } catch (e) {
+    $("result").innerHTML = `<div class="answer error">검색 실패: ${esc(e.message)}</div>`;
+  } finally {
+    $("search-btn").disabled = false;
+  }
+}
+
+$("new-session").addEventListener("click", newSession);
+$("search-form").addEventListener("submit", search);
+// 백그라운드 탭에서는 타이머가 느려지므로, 돌아오면 바로 한 번 갱신
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(refresh, POLL_MS);
+newSession();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+python-multipart==0.0.9
+# supabase 2.7.4가 httpx<0.28을 요구하므로 맞춰서 고정
+httpx==0.27.2
+supabase==2.7.4
+qrcode==7.4.2
+pillow==10.4.0
