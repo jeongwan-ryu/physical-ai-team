@@ -31,3 +31,9 @@ language sql stable as $$
   order by embedding <=> query_embedding
   limit match_count;
 $$;
+
+-- 새 테이블에 API 역할 권한이 자동으로 붙지 않는 프로젝트라서 직접 부여.
+-- 세 컨테이너 모두 service_role 키만 쓰므로 anon/authenticated에는 주지 않음.
+grant select, insert, update, delete on sessions, passages to service_role;
+grant usage, select on all sequences in schema public to service_role;
+grant execute on function match_passages(vector, int) to service_role;
