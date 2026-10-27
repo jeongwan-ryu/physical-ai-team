@@ -1,3 +1,4 @@
 __pycache__/
 certs/
 connection_qr.png
+.env

@@ -1,0 +1,11 @@
+# torch는 Dockerfile에서 CPU 전용 인덱스로 먼저 설치함 (여기 버전과 동일하게 유지)
+# 임베딩 관련 버전은 worker/requirements.txt와 같게 유지 (같은 벡터가 나와야 함)
+torch==2.4.1
+numpy==1.26.4
+sentence-transformers==3.0.1
+transformers==4.44.2
+huggingface_hub==0.24.6
+supabase==2.7.4
+google-genai==1.2.0
+fastapi==0.115.0
+uvicorn==0.30.6
