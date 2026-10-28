@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import re
 import secrets
 import time
 from collections import deque
@@ -151,6 +152,9 @@ app = FastAPI(lifespan=lifespan)
 @app.websocket("/ws/ingest")
 async def ingest(ws: WebSocket, stream_id: str = "default"):
     """메시지 하나 = JPEG 한 장(바이너리). stream_id는 주소의 ?stream_id= 로 받음."""
+    if not re.fullmatch(r"[\w-]{1,32}", stream_id):  # 대시보드에 그대로 표시되므로 입구에서 거름
+        await ws.close(code=1008)
+        return
     await ws.accept()
     try:
         while True:

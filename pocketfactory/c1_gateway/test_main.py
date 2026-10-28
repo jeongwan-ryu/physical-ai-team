@@ -5,6 +5,7 @@ import json
 
 import httpx
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 import c1_gateway.main as main
 from common.schema import InferRequest, InferResponse, PreprocessResponse, Result, Target
@@ -58,6 +59,12 @@ def test_pipeline():
                 if s["failed"]:
                     break
         assert s["frames_in"] == 2 and s["ng"] == 1 and s["failed"] == 1, s
+
+        try:  # 대시보드에 그대로 찍히는 값이라 태그 같은 문자는 입구에서 거절
+            with c.websocket_connect("/ws/ingest?stream_id=<img>"):
+                raise AssertionError("잘못된 stream_id가 통과함")
+        except WebSocketDisconnect:
+            pass
 
 
 if __name__ == "__main__":
