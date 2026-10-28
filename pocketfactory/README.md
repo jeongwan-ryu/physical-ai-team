@@ -27,7 +27,7 @@ docker compose ps                # c3-sam2 3개가 healthy인지 확인
 ```
 
 1. PC에서 `https://localhost/dashboard.html`을 열고 인증서 경고를 넘김
-2. 모니터에 `https://localhost/simulator.html`을 띄움
+2. 모니터에 `https://localhost/simulator.html`을 띄우고 컨베이어 속도를 40~50 px/s로 낮춤 (기본 130이면 CPU의 C3가 따라가지 못해 미검사가 쌓임)
 3. 폰으로 대시보드의 QR을 찍어 촬영 페이지를 열고, 인증서 경고를 넘긴 뒤 카메라 허용 → 전송 시작
 
 가중치 받을 때 `Permission denied`가 나면 (Linux에서 Docker가 `weights/`를 먼저 만들어 root 소유인 경우) `sudo chown $USER weights` 후 다시 받기.

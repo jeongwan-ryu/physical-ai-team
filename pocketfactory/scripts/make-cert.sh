@@ -25,7 +25,15 @@ MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
   -subj "/CN=$IP" \
   -addext "subjectAltName=IP:$IP,DNS:localhost,IP:127.0.0.1" 2>/dev/null
 
-[ -f .env ] || cp .env.example .env
+if [ ! -f .env ]; then
+  cp .env.example .env
+  # C3 레플리카 3개가 코어를 나눠 씀 (설계 5장). 이미 있는 .env는 측정용으로 바꾼 값일 수 있어 건드리지 않음
+  THREADS=$("$PY" -c "import os; print(max(1, (os.cpu_count() or 3) // 3))")
+  grep -v '^TORCH_THREADS=' .env > .env.tmp || true
+  echo "TORCH_THREADS=$THREADS" >> .env.tmp
+  mv .env.tmp .env
+  echo ".env: TORCH_THREADS=$THREADS (코어 수 ÷ 3)"
+fi
 grep -v '^PUBLIC_BASE_URL=' .env > .env.tmp || true
 echo "PUBLIC_BASE_URL=https://$IP" >> .env.tmp
 mv .env.tmp .env
