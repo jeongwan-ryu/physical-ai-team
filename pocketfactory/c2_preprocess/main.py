@@ -28,6 +28,7 @@ MATCH_TOL = 0.45            # 짝짓기 허용 거리, 과자 크기 대비
 MAX_MISSED = 8              # 검출이 이만큼 끊겨도 트랙 유지 (블러 프레임 대비)
 MIN_AGE = 3                 # 이만큼 짝지어진 트랙만 검사 (잠깐 잡힌 잡음 제외)
 UPSTREAM_MARGIN = 0.5       # 검사선 앞으로 과자 크기의 이 비율 이상 떨어져 보인 적이 있어야 통과로 인정 (흔들림 왕복 방지)
+GROUP_MARGIN = 0.5          # 다른 과자를 보낼 때 검사선 앞 과자 크기의 이 비율 안에 있으면 같은 열로 보고 함께 보냄
 MAX_WAIT = 4                # 검사선을 지난 뒤 선명한 프레임을 기다리는 최대 프레임 수
 SHARP_RATIO = 0.6           # 그 과자의 최고 선명도 대비 이 이상이면 선명하다고 봄
 STEADY_RATIO = 0.15         # 직전 프레임 대비 흔들림이 과자 크기의 이 비율 이하면 안정
@@ -210,7 +211,8 @@ def step(st: StreamState, frame: FrameMeta, img: np.ndarray) -> list[Target]:
     moving = abs(st.belt_vel[0]) >= MIN_SPEED * st.size and st.belt_vel[0] * FLOW_SIGN > 0
     scan_x = SCAN_X_RATIO * w
 
-    targets = []
+    shake_len = float(np.linalg.norm(shake))
+    cands = []      # (트랙, 검사선을 지났는지, 보낼 때가 됐는지). 조건은 다 맞고 검사선 근처에 있는 과자
     for t in st.tracks:
         d = t.det
         if d is None:
@@ -231,18 +233,28 @@ def step(st: StreamState, frame: FrameMeta, img: np.ndarray) -> list[Target]:
 
         x1, y1, x2, y2 = d.box
         inside = x1 >= EDGE_MARGIN and y1 >= EDGE_MARGIN and x2 <= w - EDGE_MARGIN and y2 <= h - EDGE_MARGIN
-        if t.inspected or not (downstream and t.seen_upstream and inside and moving and t.age >= MIN_AGE):
+        if t.inspected or not (along > -GROUP_MARGIN * t.size and t.seen_upstream and inside and moving
+                               and t.age >= MIN_AGE):
             continue
         if abs(t.drift) > 0.5 * t.size:     # 벨트와 같이 움직이지 않는 물체
             continue
-        t.wait += 1
-        steady = float(np.linalg.norm(shake)) <= STEADY_RATIO * t.size
-        if (sharp_ok and steady) or t.wait > MAX_WAIT:
+        due = False
+        if downstream:
+            t.wait += 1
+            due = (sharp_ok and shake_len <= STEADY_RATIO * t.size) or t.wait > MAX_WAIT
+        cands.append((t, downstream, due))
+
+    # 검사선을 지난 과자 하나라도 보낼 때가 되면, 검사선 바로 앞까지 온 과자도 같은 프레임으로 함께 보냄.
+    # 따로 보내면 한 열이 1~3프레임에 나뉘어 C3를 여러 번 부르고, 대시보드에 같은 장면 카드가 라인별로 쪼개져 쌓임
+    targets = []
+    if any(due for _, _, due in cands):
+        for t, _, _ in cands:
             t.inspected = True
+            x1, y1, x2, y2 = t.det.box
             pad = BOX_PAD * t.size
             targets.append(Target(
                 cookie_id=st.next_cookie_id,
-                line=lane_of[id(d)],
+                line=lane_of[id(t.det)],
                 box=(max(0.0, x1 - pad), max(0.0, y1 - pad), min(w - 1.0, x2 + pad), min(h - 1.0, y2 + pad)),
             ))
             st.next_cookie_id += 1
