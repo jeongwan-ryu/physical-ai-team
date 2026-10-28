@@ -128,8 +128,7 @@ C2의 진짜 임무는 C3에 보낼 일을 줄이는 것이다. 과자가 검사
 4. 라인 배정: 박스 중심 y좌표로 몇 번째 컨베이어인지 결정
 5. 검사선 통과 추적 (아래)
 6. 화면 가장자리에 닿은 박스 제외 (`EDGE_MARGIN`): 잘린 과자는 원형도가 왜곡된다
-7. SAM 2 입력 크기로 리사이즈하고 `transform`(배율, 오프셋) 기록
-8. 응답: 검사 대상 `targets[]` + 리사이즈 이미지. 대상이 없으면 빈 목록
+7. 응답: 검사 대상 `targets[]` (JSON, 원본 좌표). 대상이 없으면 빈 목록. 이미지는 돌려주지 않는다
 
 **검사선 통과 추적**
 
@@ -151,6 +150,7 @@ C3는 상태가 없는 판정기다. 박스 프롬프트로 과자 경계를 픽
 
 - 컨테이너 시작 시 `sam2.1_hiera_tiny` 체크포인트를 한 번만 로딩한다. 가중치는 이미지에 넣지 않고 `./weights`를 읽기전용 마운트한다.
 - `SAM2ImagePredictor`로 프레임당 이미지 임베딩을 한 번만 계산하고, 그 프레임의 박스 프롬프트들을 한 번에 디코딩한다. 비용 대부분이 임베딩이라 과자가 여러 개여도 거의 같은 시간이 걸린다.
+- 입력은 원본 프레임 그대로다. `set_image()`가 모델 입력 크기로 맞추는 일을 내부에서 하고, 마스크도 원본 해상도로 돌려주므로 C2·C4에 리사이즈·역변환이 필요 없다.
 - `DEVICE=cpu`가 기본. CPU에서는 프레임당 대략 1초 안팎이 예상되며 PC 사양에 따라 차이가 크다. 레플리카마다 `TORCH_THREADS`(코어 수 ÷ 레플리카 수)로 코어를 나눠 쓴다. 레플리카 수를 바꾸면 이 값도 같이 바꾼다. 레플리카 1개로 측정할 때 코어의 1/3만 쓰면 스케일아웃 효과가 부풀려진다.
 - 모델 로딩이 끝나기 전에는 `/health`가 실패를 반환한다. compose는 C3가 healthy가 될 때까지 c3-lb를 띄우지 않지만, 무료 Nginx는 `/health`를 직접 확인하지 않는다. 그래서 레플리카를 늘린 뒤에는 새 레플리카가 healthy가 된 다음 c3-lb를 재시작한다 (8장).
 - torch는 빌드 인자 `TORCH_INDEX`로 받는다. 기본값은 CPU 전용 휠(`https://download.pytorch.org/whl/cpu`)이라 이미지가 수 GB 작다. GPU용 compose 파일이 이 값을 CUDA 휠로 바꾼다.
@@ -182,17 +182,16 @@ C3는 상태가 없는 판정기다. 박스 프롬프트로 과자 경계를 픽
 
 ## 6. C4 Visualizer (OpenCV + Pillow, SQLite)
 
-C4는 C3가 리사이즈 이미지 기준으로 낸 판정 결과를 원본 프레임 위에 그려서 C1에 돌려주고, 판정 이력을 남긴다.
+C4는 C3의 판정 결과를 원본 프레임 위에 그려서 C1에 돌려주고, 판정 이력을 남긴다.
 
 **처리 순서**
 
-1. C1에서 원본 JPEG와 `transform`, `results[]`를 받음
-2. 폴리곤 좌표를 원본 해상도로 역변환: (좌표 − 오프셋) ÷ 배율
-3. 불량은 빨간 반투명 마스크와 굵은 외곽선, 정상은 초록 외곽선
-4. 과자마다 라인 번호, 원형도, 솔리디티, 판정 텍스트 표시. 한글은 OpenCV `putText`가 지원하지 않으므로 텍스트만 Pillow로 그린다
-5. SQLite `inspections` 테이블에 한 줄씩 기록
-6. 불량이면 마킹 이미지를 `./data/defects/{frame_id}_{cookie_id}.jpg`로 저장
-7. 마킹 이미지 JPEG를 C1에 응답으로 반환
+1. C1에서 원본 JPEG와 `results[]`를 받음 (폴리곤은 원본 좌표라 그대로 그림)
+2. 불량은 빨간 반투명 마스크와 굵은 외곽선, 정상은 초록 외곽선
+3. 과자마다 라인 번호, 원형도, 솔리디티, 판정 텍스트 표시. 한글은 OpenCV `putText`가 지원하지 않으므로 텍스트만 Pillow로 그린다
+4. SQLite `inspections` 테이블에 한 줄씩 기록
+5. 불량이면 마킹 이미지를 `./data/defects/{frame_id}_{cookie_id}.jpg`로 저장
+6. 마킹 이미지 JPEG를 C1에 응답으로 반환
 
 **inspections 테이블**
 
@@ -213,19 +212,15 @@ SQLite는 파일 하나라 별도 DB 컨테이너가 필요 없다. C4가 레플
 
 내부 호출은 모두 `multipart/form-data`로 `meta`(JSON)와 `image`(JPEG 바이너리) 두 파트를 보낸다. 이미지를 JSON 안에 base64로 넣지 않는다. 메시지 정의는 `common/schema.py`(Pydantic) 한 곳에 두고, 각 서비스 Dockerfile이 `COPY common/`으로 이미지에 넣는다. 이를 위해 빌드 기준(context)을 프로젝트 폴더 전체로 둔다 (8장).
 
-| 필드 | 만드는 곳 | 내용 |
-| --- | --- | --- |
-| `frame_id`, `stream_id`, `ts_capture` | C1 | 프레임 식별, 시각 (지연은 C1 수신 시각 기준, 폰 시각은 참고용) |
-| `transform` | C2 | 리사이즈 배율, 크롭 오프셋 |
-| `targets[]` | C2 | `cookie_id`, `line`, `box` (SAM 2 프롬프트) |
-| `results[]` | C3 | `cookie_id`, `polygon`, `area`, `perimeter`, `circularity`, `solidity`, `verdict` |
-| `timing` | C1 | 각 단계 호출 전후 시각 |
+`common/schema.py`가 규격의 기준이다. 담당자가 서로 다른 경계(C1↔C2, C1↔C3, C1↔C4)만 정의하고, 한 사람이 양쪽을 다 만드는 폰→C1, C1→대시보드 메시지는 넣지 않는다. 바꿀 때는 PR로 올리고 양쪽 담당자가 확인한다. 좌표는 모두 원본 프레임 픽셀 기준이다.
 
-| 호출 | 보내는 이미지 |
-| --- | --- |
-| C1 → C2 | 원본 |
-| C1 → C3 | C2가 돌려준 리사이즈 이미지 |
-| C1 → C4 | 원본 (검사 작업이 C2 호출 때부터 들고 있던 것) |
+| 호출 | meta | image | 응답 |
+| --- | --- | --- | --- |
+| C1 → C2 `POST /process` | `FrameMeta` (`frame_id`, `stream_id`, `ts_recv`, `ts_capture`) | 원본 | JSON `PreprocessResponse` (`targets[]`: `cookie_id`, `line`, `box`) |
+| C1 → C3 `POST /infer` | `InferRequest` (`frame`, `targets[]`) | 원본 | JSON `InferResponse` (`results[]`: `cookie_id`, `line`, `polygon`, `area`, `perimeter`, `circularity`, `solidity`, `verdict`) |
+| C1 → C4 `POST /render` | `RenderRequest` (`frame`, `results[]`) | 원본 | JPEG (마킹 이미지) |
+
+C1은 C2 호출 때 받은 원본 바이트를 C3·C4 호출에도 그대로 쓴다. 단계별 호출 전후 시각(`timing`)은 C1 안에서만 쓰므로 규격에 넣지 않는다.
 
 **설정값 (.env)**
 
