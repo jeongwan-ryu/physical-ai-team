@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from common.schema import InferRequest, InferResponse, Result
 
 SAM2_MODEL = os.getenv("SAM2_MODEL", "sam2.1_hiera_tiny")
+SAM2_IMAGE_SIZE = int(os.getenv("SAM2_IMAGE_SIZE", "512"))  # SAM 2 입력 크기(32의 배수). 원래 1024, 512면 임베딩이 약 4배 빠름
 DEVICE = os.getenv("DEVICE", "cpu")
 TORCH_THREADS = int(os.getenv("TORCH_THREADS", "0"))  # 0이면 torch 기본값
 CIRC_THRESHOLD = float(os.getenv("CIRC_THRESHOLD", "0.96"))
@@ -36,8 +37,13 @@ def load_model():
 
     if TORCH_THREADS > 0:
         torch.set_num_threads(TORCH_THREADS)
-    sam = build_sam2(CONFIGS[SAM2_MODEL], f"/weights/{SAM2_MODEL}.pt", device=DEVICE)
-    return SAM2ImagePredictor(sam)
+    sam = build_sam2(CONFIGS[SAM2_MODEL], f"/weights/{SAM2_MODEL}.pt", device=DEVICE,
+                     hydra_overrides_extra=[f"++model.image_size={SAM2_IMAGE_SIZE}"])
+    predictor = SAM2ImagePredictor(sam)
+    # predictor는 특징맵 크기를 1024 입력 기준으로 고정해 두므로 입력 크기에 맞춰 바꿈
+    s = SAM2_IMAGE_SIZE
+    predictor._bb_feat_sizes = [(s // 4, s // 4), (s // 8, s // 8), (s // 16, s // 16)]
+    return predictor
 
 
 @asynccontextmanager
