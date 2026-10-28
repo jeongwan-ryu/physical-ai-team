@@ -111,11 +111,11 @@ graph LR
 
 | 엔드포인트 | 호출자 | 내용 |
 | --- | --- | --- |
-| `WS /ws/ingest` | 폰 촬영 페이지, 시뮬레이터 | JPEG 프레임 수신 |
-| `WS /ws/dashboard` | 대시보드 | 라이브 프레임, 검사 결과, 통계 푸시 |
+| `WS /ws/ingest?stream_id=…` | 폰 촬영 페이지, 시뮬레이터 | 메시지 하나 = JPEG 한 장 (바이너리). 응답 없음 |
+| `WS /ws/dashboard` | 대시보드 | JSON 텍스트 메시지 푸시. `type`이 `live`(`stream_id`, `frame_id`, `jpeg`), `result`(`frame`, `results`, `timing`, `jpeg`=마킹 이미지 또는 null), `stats`(1초마다, `/stats`와 같은 내용). `jpeg`는 base64 |
 | `GET /health` | compose | 헬스체크 |
 | `GET /stats` | 대시보드, 측정 스크립트 | 처리량, 단계별 지연, 미검사·실패·폐기 수, 대기열 길이 |
-| `GET /api/qr` | 대시보드 | 폰 촬영 페이지 주소를 담은 QR (PNG). 호출할 때마다 새 `stream_id` (10장) |
+| `GET /api/qr` | 대시보드 | JSON `{url, stream_id, qr_png}` (`qr_png`는 base64 PNG). 호출할 때마다 새 `stream_id` (10장) |
 
 ## 4. C2 Preprocess (OpenCV, CPU)
 
@@ -449,7 +449,7 @@ mkcert로 시작하고, 폰 인증서 설치가 막히면 cloudflared로 edge(44
 폰은 대시보드의 QR을 찍어 촬영 페이지를 연다. 주소를 손으로 입력하지 않는다.
 
 1. `bash scripts/make-cert.sh`를 인자 없이 실행하면 PC의 Wi-Fi IP를 자동으로 찾아 인증서를 만들고 `.env`의 `PUBLIC_BASE_URL`에 `https://{IP}`를 기록한다. IP는 OS와 상관없이 같은 방법으로 찾는다: `python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0])"` (실제로 패킷을 보내지 않고 기본 경로의 내 주소만 확인). 인자로 IP를 주면 그 값을 쓴다 (VPN 등으로 잘못 잡힐 때).
-2. C1의 `GET /api/qr`가 `{PUBLIC_BASE_URL}/capture.html?stream_id=phone-{임의 4자리}`를 QR PNG로 돌려준다 (`qrcode` 라이브러리, lensrag `api/main.py`의 `make_qr_png_base64`와 같은 방식).
+2. C1의 `GET /api/qr`가 `{PUBLIC_BASE_URL}/capture.html?stream_id=phone-{임의 4자리}`를 QR로 만들어 주소와 함께 돌려준다 (`qrcode` 라이브러리, lensrag `api/main.py`의 `make_qr_png_base64`와 같은 방식).
 3. `dashboard.html`이 QR을 띄운다. 폰으로 찍으면 촬영 페이지가 열리고, 첫 접속 때 인증서 경고를 한 번 넘기면 카메라가 켜지고 라이브 영역에 화면이 나온다.
 
 컨테이너 안에서는 PC의 Wi-Fi IP를 알 수 없으므로 PC 쪽 스크립트가 찾아 넣는다. Wi-Fi가 바뀌어 IP가 달라지면 스크립트를 다시 실행하고 `docker compose up -d`로 C1·edge를 새로 만든다. 인터넷이 되는 곳에서 IP와 인증서 경고를 모두 피하고 싶으면 cloudflared 퀵 터널(9장)을 쓰고, 그때는 터널 주소를 `PUBLIC_BASE_URL`로 둔다.
