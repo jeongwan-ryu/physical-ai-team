@@ -37,7 +37,7 @@ graph LR
 
 | 컨테이너 | 계층 | 역할 | 레플리카 | 상태 |
 | --- | --- | --- | --- | --- |
-| edge | 인프라 | HTTPS 처리, 정적 페이지 제공, WebSocket·`/stats` 프록시 | 1 | 없음 |
+| edge | 인프라 | HTTPS 처리, 정적 페이지 제공, WebSocket·`/stats`·`/api/` 프록시 | 1 | 없음 |
 | C1 Gateway | 서비스 | 프레임 수신, C2→C3→C4 호출, 결과 푸시, 지연 측정 | 1 | 대기열, 통계 |
 | C2 Preprocess | 서비스 | 조명 보정, 과자 검출, 검사선 통과 선별 | **1 고정** | 라인별 과자 위치 |
 | c3-lb | 인프라 | C3 레플리카로 요청 분산 | 1 | 없음 |
@@ -115,6 +115,7 @@ graph LR
 | `WS /ws/dashboard` | 대시보드 | 라이브 프레임, 검사 결과, 통계 푸시 |
 | `GET /health` | compose | 헬스체크 |
 | `GET /stats` | 대시보드, 측정 스크립트 | 처리량, 단계별 지연, 미검사·실패·폐기 수, 대기열 길이 |
+| `GET /api/qr` | 대시보드 | 폰 촬영 페이지 주소를 담은 QR (PNG). 호출할 때마다 새 `stream_id` (10장) |
 
 ## 4. C2 Preprocess (OpenCV, CPU)
 
@@ -256,6 +257,7 @@ C1은 C2 호출 때 받은 원본 바이트를 C3·C4 호출에도 그대로 쓴
 | `INSPECT_QUEUE` | 20 | C1 | 넘치면 미검사(SKIPPED) |
 | `C2_QUEUE` | 4 | C1 | 넘치면 가장 오래된 프레임 폐기 |
 | `TIMEOUT_C3` | 10 (초) | C1 | CPU 기준, GPU면 2 정도 |
+| `PUBLIC_BASE_URL` | `make-cert.sh`가 자동 기록 | C1 | QR에 넣을 PC 주소 `https://{PC IP}` (10장) |
 | `SCAN_X_RATIO` | 0.34 | C2 | 시뮬레이터 검사선과 동일 |
 | `FLOW_DIRECTION` | left | C2 | 컨베이어 진행 방향 |
 | `EDGE_MARGIN` | 10 (px) | C2 | 가장자리 과자 제외 |
@@ -390,6 +392,9 @@ location /ws/ {
 location = /stats {
     proxy_pass http://c1-gateway:8000;   # C1은 외부 포트가 없으므로 측정 스크립트도 edge를 거침
 }
+location /api/ {
+    proxy_pass http://c1-gateway:8000;   # QR 등 대시보드용 API
+}
 ```
 
 **c3-lb: upstream 설정**
@@ -435,9 +440,19 @@ mkcert로 시작하고, 폰 인증서 설치가 막히면 cloudflared로 edge(44
 
 | 페이지 | 용도 |
 | --- | --- |
-| `capture.html` | 폰 카메라 촬영, 캔버스에서 JPEG로 인코딩해 WSS 전송 (해상도·전송 fps 조절, 이전 프레임 전송이 끝난 뒤에만 다음 프레임 전송) |
+| `capture.html` | 폰 카메라 촬영, 캔버스에서 JPEG로 인코딩해 WSS 전송 (해상도·전송 fps 조절, 이전 프레임 전송이 끝난 뒤에만 다음 프레임 전송). QR로 열리며 주소의 `stream_id`를 그대로 씀 |
 | `dashboard.html` | 위 네 영역 |
 | `simulator.html` | 기존 컨베이어 시뮬레이터 + 캔버스 프레임을 C1로 직접 전송하는 기능 추가 |
+
+**폰 연결 (QR)**
+
+폰은 대시보드의 QR을 찍어 촬영 페이지를 연다. 주소를 손으로 입력하지 않는다.
+
+1. `bash scripts/make-cert.sh`를 인자 없이 실행하면 PC의 Wi-Fi IP를 자동으로 찾아 인증서를 만들고 `.env`의 `PUBLIC_BASE_URL`에 `https://{IP}`를 기록한다. IP는 OS와 상관없이 같은 방법으로 찾는다: `python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0])"` (실제로 패킷을 보내지 않고 기본 경로의 내 주소만 확인). 인자로 IP를 주면 그 값을 쓴다 (VPN 등으로 잘못 잡힐 때).
+2. C1의 `GET /api/qr`가 `{PUBLIC_BASE_URL}/capture.html?stream_id=phone-{임의 4자리}`를 QR PNG로 돌려준다 (`qrcode` 라이브러리, lensrag `api/main.py`의 `make_qr_png_base64`와 같은 방식).
+3. `dashboard.html`이 QR을 띄운다. 폰으로 찍으면 촬영 페이지가 열리고, 첫 접속 때 인증서 경고를 한 번 넘기면 카메라가 켜지고 라이브 영역에 화면이 나온다.
+
+컨테이너 안에서는 PC의 Wi-Fi IP를 알 수 없으므로 PC 쪽 스크립트가 찾아 넣는다. Wi-Fi가 바뀌어 IP가 달라지면 스크립트를 다시 실행하고 `docker compose up -d`로 C1·edge를 새로 만든다. 인터넷이 되는 곳에서 IP와 인증서 경고를 모두 피하고 싶으면 cloudflared 퀵 터널(9장)을 쓰고, 그때는 터널 주소를 `PUBLIC_BASE_URL`로 둔다.
 
 폰에서 보내는 해상도는 1280px 이하, 전송 속도는 15fps 정도로 시작한다. 검사는 검사선 통과 프레임에만 하므로 30fps가 필요하지 않고, 대역폭과 C1·C2 부하가 절반으로 준다.
 
@@ -449,7 +464,7 @@ mkcert로 시작하고, 폰 인증서 설치가 막히면 cloudflared로 edge(44
     - 통과 조건: 정상 과자가 원형도 0.96·솔리디티 0.985 이상, 불량 과자가 그 미만
 2. **6컨테이너 파이프라인 연결**: 입력은 `simulator.html`이 캔버스 프레임을 C1로 직접 전송. 대시보드에 찍히는 값을 보며 임계값을 조정한다 (`.env` 수정 후 C3를 새로 만들고 c3-lb 재시작, 7장)
     - 통과 조건: 과자당 판정 1회(중복 없음), 검사 수·불량 수가 시뮬레이터 화면의 집계와 5% 이내로 일치
-3. **폰 카메라 연결**: mkcert로 HTTPS, 거치대에 고정한 폰으로 모니터 속 시뮬레이터 촬영. 반사, 기울기, 조명 영향 확인. 카메라가 비스듬하면 원이 타원으로 찍혀 정상 과자의 원형도가 떨어지므로 임계값을 다시 확인한다
+3. **폰 카메라 연결**: 대시보드 QR로 폰 연결(10장), 거치대에 고정한 폰으로 모니터 속 시뮬레이터 촬영. 반사, 기울기, 조명 영향 확인. 기울기로 원이 타원이 되는 영향은 작지만(5장) 정상 과자 값이 임계값 근처로 내려오지 않는지 확인한다
     - 통과 조건: 검사 수·불량 수가 시뮬레이터 집계와 10% 이내로 일치, 라이브 화면 끊김 없음
 4. **스케일아웃 측정**: C3 레플리카 1개와 3개에서 같은 입력으로 처리량, 지연, 미검사 수 측정, 발표용 그래프 작성. 두 경우 모두 C3 전체가 같은 코어 수를 쓰도록 `TORCH_THREADS`를 맞춘다
 
