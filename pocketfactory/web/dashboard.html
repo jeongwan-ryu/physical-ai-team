@@ -1,5 +1,242 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>dashboard</title></head>
-<body><p>dashboard.html: 설계 10장 참고해서 구현</p></body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>검사 라인 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* 색과 글꼴은 simulator.html의 기계 패널을 그대로 이어 받음: 두 화면을 나란히 띄워 대조한다 */
+  :root{
+    --machine:#b7b3a8; --panel:#e5e2da; --panel-2:#d3cfc5; --line:#a8a49a;
+    --ink:#1a1d1f; --ink-2:#5c6266; --void:#14181b;
+    --signal:#1f5c8b; --hazard:#e8b21f; --alarm:#c2372b; --ok:#3e7d53;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  body{
+    margin:0; background:var(--machine); color:var(--ink);
+    font:14px/1.45 'Barlow','Noto Sans KR',system-ui,sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  h1,h2{font-family:'Barlow Condensed','Noto Sans KR',sans-serif;font-weight:700;margin:0}
+  h1{font-size:22px}
+  h2{font-size:16px;color:var(--ink-2)}
+  .rig{max-width:1680px;margin:0 auto;padding:14px;display:grid;gap:12px;
+       grid-template-columns:minmax(0,1fr) 300px}
+  header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  #conn{font-size:13px;padding:4px 10px;background:var(--panel);border:1px solid var(--line)}
+  #conn[data-ok=false]{background:var(--alarm);color:#fff;border-color:var(--alarm)}
+  .box{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--ink);padding:12px}
+
+  /* 라이브 */
+  .live{position:relative;background:var(--void);border:1px solid #0b0e10;height:min(52vh,56vw);
+        display:grid;place-items:center;overflow:hidden}
+  .live img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+  .live .tag{position:absolute;left:10px;top:8px;color:#9aa3a9;font-size:12px;z-index:1}
+  .live .empty{color:#9aa3a9;text-align:center;padding:24px;max-width:36ch}
+
+  /* 처리 시간 막대: 이 화면에서 가장 큰 목소리. 과자 하나가 어디서 시간을 쓰는지 */
+  .flow{display:grid;gap:6px}
+  .flow-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .flow-head b{font-family:'Barlow Condensed',sans-serif;font-size:28px;line-height:1}
+  .bar{display:flex;height:52px;background:var(--panel-2);border:1px solid var(--line)}
+  .seg{display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;
+       font-weight:600;font-size:13px;color:#fff;min-width:0;transition:flex-grow .4s}
+  .seg[data-k=wait]{background:repeating-linear-gradient(-45deg,var(--hazard) 0 10px,#d9a210 10px 20px);color:var(--ink)}
+  .seg[data-k=c2],.seg[data-k=c4]{background:var(--ink-2)}
+  .seg[data-k=c3]{background:var(--signal)}
+  .legend{font-size:12px;color:var(--ink-2)}
+
+  /* 집계: simulator.html의 readout과 같은 이름 */
+  .counts{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);margin-top:8px}
+  .cell{background:var(--panel);padding:7px 10px}
+  .cell span{display:block;font-size:12px;color:var(--ink-2)}
+  .cell b{font-family:'Barlow Condensed',sans-serif;font-size:24px;line-height:1.1}
+  .cell b.ng{color:var(--alarm)} .cell b.ok{color:var(--ok)}
+  .cell.warn b{color:#9a6b00}
+
+  /* QR */
+  .qr{display:grid;gap:8px;justify-items:start}
+  .qr img{width:168px;height:168px;image-rendering:pixelated;background:#fff;border:1px solid var(--line)}
+  .qr code{font-size:12px;word-break:break-all;color:var(--ink-2)}
+  button{font:inherit;font-weight:600;padding:6px 12px;border:1px solid var(--ink);background:var(--ink);color:#f2efe8;cursor:pointer}
+  button:focus-visible,label:focus-within{outline:2px solid var(--signal);outline-offset:2px}
+  .err{color:var(--alarm);font-size:13px}
+
+  /* 결과 피드 */
+  .feed-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .feed-head label{font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer}
+  .feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+  .card{background:#fff;border:1px solid var(--line);border-left:6px solid var(--ok)}
+  .card.ng{border-left-color:var(--alarm)}
+  .card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--void)}
+  .card .nomark{aspect-ratio:16/9;display:grid;place-items:center;background:var(--void);color:#9aa3a9;font-size:12px}
+  .card ul{list-style:none;margin:0;padding:6px 8px;font-size:12.5px}
+  .card li{display:flex;justify-content:space-between;gap:6px}
+  .card li b{color:var(--ok)} .card li b.ng{color:var(--alarm)}
+  .card small{display:block;padding:0 8px 6px;color:var(--ink-2)}
+  .feed .empty{color:var(--ink-2);padding:12px 0}
+  .feed.only-ng .card:not(.ng){display:none}
+
+  @media (max-width:900px){.rig{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){.seg{transition:none}}
+</style>
+</head>
+<body>
+<div class="rig">
+  <header>
+    <h1>검사 라인 대시보드</h1>
+    <span id="conn" data-ok="false">C1에 연결하는 중</span>
+  </header>
+
+  <main style="display:grid;gap:12px;min-width:0">
+    <div class="live">
+      <span class="tag" id="live-tag"></span>
+      <img id="live" alt="폰 카메라 라이브 화면" hidden>
+      <p class="empty" id="live-empty">폰으로 오른쪽 QR을 찍으면 여기에 카메라 화면이 나옵니다.</p>
+    </div>
+
+    <section class="box flow" aria-label="과자 하나의 처리 시간">
+      <div class="flow-head">
+        <h2>과자 하나의 처리 시간</h2>
+        <span style="display:flex;gap:18px"><span>평균 <b id="t-total">-</b> 초</span><span>처리량 <b id="t-rate">0.0</b> 개/초</span></span>
+      </div>
+      <div class="bar" id="bar">
+        <div class="seg" data-k="wait"></div><div class="seg" data-k="c2"></div>
+        <div class="seg" data-k="c3"></div><div class="seg" data-k="c4"></div>
+      </div>
+      <div class="legend">대기는 대기열에서 순서를 기다린 시간입니다. C3 레플리카를 늘리면 줄어듭니다.</div>
+    </section>
+
+    <section class="box">
+      <div class="feed-head">
+        <h2>검사 결과 (최근 순)</h2>
+        <label><input type="checkbox" id="only-ng"> 불량만 보기</label>
+      </div>
+      <div class="feed" id="feed"><p class="empty">검사선을 지난 과자가 여기에 쌓입니다.</p></div>
+    </section>
+  </main>
+
+  <aside style="display:grid;gap:12px;align-content:start">
+    <section class="box qr">
+      <h2>폰 연결</h2>
+      <img id="qr" alt="폰 촬영 페이지로 가는 QR 코드" hidden>
+      <code id="qr-url"></code>
+      <p class="err" id="qr-err" hidden></p>
+      <button id="qr-new" type="button">새 QR 만들기</button>
+    </section>
+
+    <section class="box">
+      <h2>집계</h2>
+      <div class="counts">
+        <div class="cell"><span>검사 통과</span><b id="c-total">0</b></div>
+        <div class="cell"><span>실측 불량률</span><b id="c-rate">0.0%</b></div>
+        <div class="cell"><span>정상</span><b class="ok" id="c-ok">0</b></div>
+        <div class="cell"><span>불량</span><b class="ng" id="c-ng">0</b></div>
+        <div class="cell warn"><span>미검사 (대기열 넘침)</span><b id="c-skipped">0</b></div>
+        <div class="cell warn"><span>판정 실패</span><b id="c-failed">0</b></div>
+        <div class="cell"><span>받은 프레임</span><b id="c-in">0</b></div>
+        <div class="cell"><span>버린 프레임</span><b id="c-drop">0</b></div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_CARDS = 40;
+
+// ── 대시보드 WebSocket: live / result / stats 메시지 (설계 3장) ──
+function connect(){
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/dashboard`);
+  ws.onopen = () => setConn(true);
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onclose = () => { setConn(false); setTimeout(connect, 1000); };
+}
+function setConn(ok){
+  $('conn').dataset.ok = ok;
+  $('conn').textContent = ok ? 'C1 연결됨' : 'C1 연결 끊김, 다시 연결하는 중';
+  $('conn').title = ok ? '' : 'docker compose ps로 c1-gateway가 떠 있는지 확인하세요';
+}
+
+function handle(m){
+  if (m.type === 'live') showLive(m);
+  else if (m.type === 'result') addResult(m);
+  else if (m.type === 'stats') showStats(m);
+}
+
+function showLive(m){
+  $('live').src = 'data:image/jpeg;base64,' + m.jpeg;
+  $('live').hidden = false;
+  $('live-empty').hidden = true;
+  $('live-tag').textContent = `${m.stream_id}  프레임 ${m.frame_id}`;
+}
+
+function addResult(m){
+  const ng = m.results.some(r => r.verdict === 'NG');
+  const card = document.createElement('article');
+  card.className = 'card' + (ng ? ' ng' : '');
+  card.innerHTML = (m.jpeg
+      ? `<img alt="프레임 ${m.frame.frame_id} 판정 이미지" src="data:image/jpeg;base64,${m.jpeg}">`
+      : `<div class="nomark">마킹 이미지 없음 (C4 응답 없음)</div>`)
+    + '<ul>' + m.results.map(r =>
+        `<li><span>라인 ${r.line}</span><span>원형도 ${r.circularity.toFixed(3)} 솔리디티 ${r.solidity.toFixed(3)}</span>`
+        + `<b class="${r.verdict === 'NG' ? 'ng' : ''}">${r.verdict === 'NG' ? '불량' : '정상'}</b></li>`).join('') + '</ul>'
+    + '<small></small>';
+  card.querySelector('small').textContent = `${m.frame.stream_id} 프레임 ${m.frame.frame_id}, ${m.timing.total.toFixed(2)}초`;
+  const feed = $('feed');
+  feed.querySelector('.empty')?.remove();
+  feed.prepend(card);
+  while (feed.children.length > MAX_CARDS) feed.lastElementChild.remove();
+}
+
+function showStats(s){
+  const set = (id, v) => $(id).textContent = v;
+  set('c-total', s.inspected); set('c-ok', s.ok); set('c-ng', s.ng);
+  set('c-rate', (s.inspected ? s.ng / s.inspected * 100 : 0).toFixed(1) + '%');
+  set('c-skipped', s.skipped); set('c-failed', s.failed);
+  set('c-in', s.frames_in); set('c-drop', s.frames_dropped);
+  set('t-rate', s.throughput.toFixed(1));
+
+  const L = s.latency;
+  set('t-total', L.total == null ? '-' : L.total.toFixed(2));
+  if (L.total == null) return;
+  // 대기 = 전체 - 각 단계 호출 시간 (대기열에서 기다린 시간)
+  const parts = {c2: L.c2 || 0, c3: L.c3 || 0, c4: L.c4 || 0};
+  parts.wait = Math.max(0, L.total - parts.c2 - parts.c3 - parts.c4);
+  const names = {wait: '대기', c2: 'C2', c3: 'C3 SAM 2', c4: 'C4'};
+  for (const seg of $('bar').children){
+    const k = seg.dataset.k, v = parts[k];
+    seg.style.flexGrow = v;
+    seg.textContent = v / L.total > 0.08 ? `${names[k]} ${(v * 1000).toFixed(0)}ms` : '';
+    seg.title = `${names[k]} ${(v * 1000).toFixed(0)}ms`;
+  }
+}
+
+// ── 폰 연결 QR (GET /api/qr) ──
+async function loadQr(){
+  $('qr-err').hidden = true;
+  try {
+    const r = await fetch('/api/qr');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.qr_png) throw new Error(d.detail || `QR을 불러오지 못했습니다 (HTTP ${r.status}). edge의 /api/ 설정과 C1을 확인하세요.`);
+    $('qr').src = 'data:image/png;base64,' + d.qr_png;
+    $('qr').hidden = false;
+    $('qr-url').textContent = d.url;
+  } catch (e) {
+    $('qr').hidden = true;
+    $('qr-err').textContent = e.message;
+    $('qr-err').hidden = false;
+  }
+}
+
+$('qr-new').onclick = loadQr;
+$('only-ng').onchange = e => $('feed').classList.toggle('only-ng', e.target.checked);
+loadQr();
+connect();
+</script>
+</body>
 </html>
