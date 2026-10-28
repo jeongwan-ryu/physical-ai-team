@@ -22,7 +22,7 @@ from common.schema import FrameMeta, InferRequest, InferResponse, PreprocessResp
 C2_URL = os.environ.get("C2_URL", "http://c2-preprocess:8000")
 C3_URL = os.environ.get("C3_URL", "http://c3-lb:80")
 C4_URL = os.environ.get("C4_URL", "http://c4-visualizer:8000")
-INSPECT_WORKERS = int(os.environ.get("INSPECT_WORKERS") or 6)
+INSPECT_WORKERS = int(os.environ.get("INSPECT_WORKERS") or 3)  # = C3 레플리카 수 (C3는 레플리카당 한 번에 한 건)
 INSPECT_QUEUE = int(os.environ.get("INSPECT_QUEUE") or 20)
 C2_QUEUE = int(os.environ.get("C2_QUEUE") or 4)
 TIMEOUT_C2 = 1.0
