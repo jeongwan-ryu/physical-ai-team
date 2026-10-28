@@ -1,5 +1,182 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>capture</title></head>
-<body><p>capture.html: 설계 10장 참고해서 구현</p></body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>검사 카메라</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* dashboard.html, simulator.html과 같은 기계 패널 색 */
+  :root{
+    --panel:#e5e2da; --line:#a8a49a; --ink:#1a1d1f; --ink-2:#5c6266; --void:#14181b;
+    --signal:#1f5c8b; --hazard:#e8b21f; --alarm:#c2372b; --ok:#3e7d53;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;height:100%;background:var(--void);color:#f2efe8;
+            font:15px/1.4 'Barlow','Noto Sans KR',system-ui,sans-serif;font-variant-numeric:tabular-nums}
+  .app{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
+  .view{position:relative;overflow:hidden}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+  .hint{position:absolute;inset:auto 12px 12px;margin:0;color:#c9cfd3;font-size:13px;text-align:center;
+        text-shadow:0 1px 2px #000}
+  .rec{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;padding:3px 10px;
+       background:var(--alarm);color:#fff;font-weight:600;font-size:13px}
+  .msg{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center}
+  .msg p{max-width:30ch;margin:0}
+
+  .bar{background:var(--panel);color:var(--ink);border-top:3px solid var(--hazard);
+       padding:12px 14px calc(12px + env(safe-area-inset-bottom));display:grid;gap:10px}
+  .status{display:flex;justify-content:space-between;gap:10px;font-size:14px}
+  .status b{font-family:'Barlow Condensed',sans-serif;font-size:20px}
+  .status .err{color:var(--alarm);font-weight:600}
+  .row{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
+  .fps{display:flex;border:1px solid var(--line)}
+  .fps button{flex:1;padding:10px 12px;background:transparent;color:var(--ink-2);border:0;font:inherit;font-weight:600}
+  .fps button[aria-pressed=true]{background:var(--signal);color:#fff}
+  #toggle{padding:14px;border:0;background:var(--ok);color:#fff;font:700 18px 'Barlow Condensed','Noto Sans KR',sans-serif}
+  #toggle[data-on=true]{background:var(--alarm)}
+  #toggle:disabled{background:var(--line)}
+  button{cursor:pointer}
+  button:focus-visible{outline:3px solid var(--hazard);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="view">
+    <video id="video" playsinline muted autoplay></video>
+    <span class="rec" id="rec" hidden>전송 중</span>
+    <p class="hint" id="hint">모니터의 컨베이어가 화면에 가득 차게 맞추고, 폰은 거치대에 고정하세요.</p>
+    <div class="msg" id="msg" hidden><p id="msg-text"></p></div>
+  </div>
+
+  <div class="bar">
+    <div class="status">
+      <span id="state">카메라 준비 중</span>
+      <span><b id="sent">0</b> 장, <b id="rate">0</b> 장/초</span>
+    </div>
+    <div class="row">
+      <div class="fps" role="group" aria-label="초당 전송 장수">
+        <button type="button" data-fps="5" aria-pressed="false">5</button>
+        <button type="button" data-fps="10" aria-pressed="false">10</button>
+        <button type="button" data-fps="15" aria-pressed="true">15</button>
+      </div>
+      <button id="toggle" type="button" data-on="false" disabled>전송 시작</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_WIDTH = 1280;   // 설계 10장: 1280px 이하
+const JPEG_QUALITY = 0.8;
+const param = new URLSearchParams(location.search).get('stream_id');
+const streamId = /^[\w-]{1,32}$/.test(param || '') ? param : 'phone-' + Math.random().toString(16).slice(2, 6);
+
+const video = $('video'), canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+let fps = 15, ws = null, timer = null, busy = false, sent = 0, wakeLock = null;
+const sentTimes = [];  // 최근 전송 시각, 실제 전송 속도 표시용
+
+function setState(text, isErr){
+  $('state').textContent = text;
+  $('state').className = isErr ? 'err' : '';
+}
+function showMsg(text){ $('msg-text').textContent = text; $('msg').hidden = false; $('hint').hidden = true; }
+
+// ── 카메라 ──
+async function startCamera(){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+  });
+  video.srcObject = stream;
+  await video.play();
+  $('toggle').disabled = false;
+  setState(`카메라 준비 완료 (${streamId})`);
+}
+
+// ── 전송: 메시지 하나 = JPEG 한 장 (설계 3장 /ws/ingest) ──
+function openSocket(){
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/ingest?stream_id=${encodeURIComponent(streamId)}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => setState(`PC로 전송 중 (${streamId})`);
+  ws.onclose = () => {
+    if (!timer) return;
+    setState('PC 연결이 끊겼습니다. 다시 연결하는 중', true);
+    setTimeout(() => { if (timer) openSocket(); }, 1000);
+  };
+}
+
+async function sendFrame(){
+  // 이전 프레임이 아직 나가는 중이면 건너뜀: 쌓이면 화면이 몇 초씩 늦어짐 (설계 3장)
+  if (busy || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 0 || !video.videoWidth) return;
+  busy = true;
+  try {
+    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', JPEG_QUALITY));
+    ws.send(await blob.arrayBuffer());
+    sent++;
+    const now = performance.now();
+    sentTimes.push(now);
+    while (sentTimes[0] < now - 2000) sentTimes.shift();
+    $('sent').textContent = sent;
+    $('rate').textContent = (sentTimes.length / 2).toFixed(0);
+  } finally {
+    busy = false;
+  }
+}
+
+async function start(){
+  openSocket();
+  timer = setInterval(sendFrame, 1000 / fps);
+  $('toggle').textContent = '전송 멈춤';
+  $('toggle').dataset.on = 'true';
+  $('rec').hidden = false;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {}  // 화면 꺼짐 방지 (지원 브라우저만)
+}
+
+function stop(){
+  clearInterval(timer);
+  timer = null;
+  ws?.close();
+  $('toggle').textContent = '전송 시작';
+  $('toggle').dataset.on = 'false';
+  $('rec').hidden = true;
+  $('rate').textContent = '0';
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  setState(`멈춤 (${streamId})`);
+}
+
+$('toggle').onclick = () => (timer ? stop() : start());
+document.querySelector('.fps').onclick = e => {
+  const v = Number(e.target.dataset.fps);
+  if (!v) return;
+  fps = v;
+  document.querySelectorAll('.fps button').forEach(b => b.setAttribute('aria-pressed', String(b === e.target)));
+  if (timer) { clearInterval(timer); timer = setInterval(sendFrame, 1000 / fps); }
+};
+// 다른 앱으로 가면 카메라 프레임이 멈추므로 전송도 멈춤
+document.addEventListener('visibilitychange', () => { if (document.hidden && timer) stop(); });
+
+if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+  showMsg('카메라는 https 주소에서만 켜집니다. PC 대시보드의 QR을 찍어서 다시 열어 주세요.');
+  setState('카메라를 쓸 수 없음', true);
+} else {
+  startCamera().catch(e => {
+    showMsg(e.name === 'NotAllowedError'
+      ? '카메라 권한이 거부되었습니다. 브라우저 설정에서 이 사이트의 카메라를 허용한 뒤 새로고침하세요.'
+      : e.name === 'NotFoundError'
+      ? '이 기기에서 카메라를 찾을 수 없습니다. 카메라가 있는 폰으로 QR을 찍어 주세요.'
+      : `카메라를 열 수 없습니다 (${e.name}). 다른 앱이 카메라를 쓰고 있지 않은지 확인하세요.`);
+    setState('카메라를 쓸 수 없음', true);
+  });
+}
+</script>
+</body>
 </html>
