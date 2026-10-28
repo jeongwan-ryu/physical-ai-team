@@ -25,7 +25,7 @@ class FrameMeta(BaseModel):  # C1이 만듦
 
 class Target(BaseModel):  # C2가 만듦. 검사선을 막 지난 과자 하나
     cookie_id: int  # 스트림별 일련번호
-    line: int  # 컨베이어 라인 번호 (위에서부터 0)
+    line: int  # 컨베이어 라인 번호 (위에서부터 1, 시뮬레이터 라벨과 동일)
     box: tuple[float, float, float, float]  # x1, y1, x2, y2. SAM 2 박스 프롬프트
 
 
