@@ -1,0 +1,12 @@
+# NVIDIA GPU가 있을 때만: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+services:
+  c3-sam2:
+    build:
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu126   # PC의 NVIDIA 드라이버가 지원하는 CUDA 버전으로
+    environment: { DEVICE: cuda }
+    deploy:
+      replicas: 1               # GPU 1장이면 1개가 기본
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
