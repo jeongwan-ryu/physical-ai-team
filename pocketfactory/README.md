@@ -19,8 +19,10 @@
 ## 실행
 
 ```bash
+# SAM 2 가중치 (약 150MB, 처음 한 번). 없으면 C3가 뜨지 않아 compose 전체가 실패함
+curl -L --create-dirs -o weights/sam2.1_hiera_tiny.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
 bash scripts/make-cert.sh        # PC Wi-Fi IP 자동 감지 → 인증서, .env(PUBLIC_BASE_URL) 생성
-docker compose up -d --build
+docker compose up -d --build     # 첫 빌드는 torch 설치로 몇 분 걸림
 docker compose ps                # c3-sam2 3개가 healthy인지 확인
 ```
 
@@ -28,6 +30,7 @@ docker compose ps                # c3-sam2 3개가 healthy인지 확인
 2. 모니터에 `https://localhost/simulator.html`을 띄움
 3. 폰으로 대시보드의 QR을 찍어 촬영 페이지를 열고, 인증서 경고를 넘긴 뒤 카메라 허용 → 전송 시작
 
+가중치 받을 때 `Permission denied`가 나면 (Linux에서 Docker가 `weights/`를 먼저 만들어 root 소유인 경우) `sudo chown $USER weights` 후 다시 받기.
 Wi-Fi가 바뀌어 IP가 달라지면 `bash scripts/make-cert.sh` 후 `docker compose up -d`.
 IP가 VPN 등으로 잘못 잡히면 `bash scripts/make-cert.sh 192.168.0.48`처럼 직접 지정.
 
