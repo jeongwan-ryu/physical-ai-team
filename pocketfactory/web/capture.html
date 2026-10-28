@@ -70,7 +70,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const MAX_WIDTH = 1280;   // 설계 10장: 1280px 이하
+const MAX_SIDE = 1280;    // 설계 10장: 1280px 이하. 세로로 든 폰은 높이가 길어서 긴 변 기준
 const JPEG_QUALITY = 0.8;
 const param = new URLSearchParams(location.search).get('stream_id');
 const streamId = /^[\w-]{1,32}$/.test(param || '') ? param : 'phone-' + Math.random().toString(16).slice(2, 6);
@@ -114,7 +114,7 @@ async function sendFrame(){
   if (busy || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 0 || !video.videoWidth) return;
   busy = true;
   try {
-    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
+    const scale = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);

@@ -32,7 +32,10 @@ def fake_services(request: httpx.Request):
 
 def next_of(ws, kind):
     for _ in range(20):
-        m = json.loads(ws.receive_text())
+        raw = ws.receive()
+        if raw.get("text") is None:  # 지나간 live의 JPEG 바이너리
+            continue
+        m = json.loads(raw["text"])
         if m["type"] == kind:
             return m
     raise AssertionError(f"{kind} 메시지가 오지 않음")
@@ -45,7 +48,7 @@ def test_pipeline():
         with c.websocket_connect("/ws/ingest?stream_id=sim") as ing:
             ing.send_bytes(b"jpeg-1")
             live = next_of(dash, "live")
-            assert live["stream_id"] == "sim" and base64.b64decode(live["jpeg"]) == b"jpeg-1"
+            assert live["stream_id"] == "sim" and dash.receive_bytes() == b"jpeg-1"
             res = next_of(dash, "result")
             assert res["frame"]["frame_id"] == 1
             assert res["results"][0]["verdict"] == "NG" and res["results"][0]["line"] == 2

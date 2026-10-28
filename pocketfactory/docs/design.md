@@ -114,7 +114,7 @@ graph LR
 | 엔드포인트 | 호출자 | 내용 |
 | --- | --- | --- |
 | `WS /ws/ingest?stream_id=…` | 폰 촬영 페이지 | 메시지 하나 = JPEG 한 장 (바이너리). 응답 없음 |
-| `WS /ws/dashboard` | 대시보드 | JSON 텍스트 메시지 푸시. `type`이 `live`(`stream_id`, `frame_id`, `jpeg`), `result`(`frame`, `results`, `timing`, `jpeg`=마킹 이미지 또는 null), `stats`(1초마다, `/stats`와 같은 내용). `jpeg`는 base64 |
+| `WS /ws/dashboard` | 대시보드 | JSON 텍스트 메시지 푸시. `type`이 `live`(`stream_id`, `frame_id`), `result`(`frame`, `results`, `timing`, `jpeg`=base64 마킹 이미지 또는 null), `stats`(1초마다, `/stats`와 같은 내용). `live` 바로 뒤에는 그 프레임의 JPEG가 바이너리 메시지로 온다 (초당 여러 장이라 base64로 키우지 않음) |
 | `GET /health` | compose | 헬스체크 |
 | `GET /stats` | 대시보드, 측정 스크립트 | 처리량, 단계별 지연, 미검사·실패·폐기 수, 대기열 길이 |
 | `GET /api/qr` | 대시보드 | JSON `{url, stream_id, qr_png}` (`qr_png`는 base64 PNG). 호출할 때마다 새 `stream_id` (10장) |
@@ -483,7 +483,7 @@ mkcert로 시작하고, 폰 인증서 설치가 막히면 cloudflared로 edge(44
 
 컨테이너 안에서는 PC의 Wi-Fi IP를 알 수 없으므로 PC 쪽 스크립트가 찾아 넣는다. Wi-Fi가 바뀌어 IP가 달라지면 스크립트를 다시 실행하고 `docker compose up -d`로 C1·edge를 새로 만든다. 인터넷이 되는 곳에서 IP와 인증서 경고를 모두 피하고 싶으면 cloudflared 퀵 터널(9장)을 쓰고, 그때는 터널 주소를 `PUBLIC_BASE_URL`로 둔다.
 
-폰에서 보내는 해상도는 1280px 이하, 전송 속도는 15fps 정도로 시작한다. 검사는 검사선 통과 프레임에만 하므로 30fps가 필요하지 않고, 대역폭과 C1·C2 부하가 절반으로 준다.
+폰에서 보내는 해상도는 긴 변 1280px 이하(세로로 든 폰도 같은 기준), 전송 속도는 15fps 정도로 시작한다. 검사는 검사선 통과 프레임에만 하므로 30fps가 필요하지 않고, 대역폭과 C1·C2 부하가 절반으로 준다.
 
 ## 11. PoC 진행 단계와 성공 기준
 

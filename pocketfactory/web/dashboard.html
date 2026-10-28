@@ -153,7 +153,8 @@ const MAX_CARDS = 40;
 function connect(){
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/dashboard`);
   ws.onopen = () => setConn(true);
-  ws.onmessage = e => handle(JSON.parse(e.data));
+  // 바이너리 메시지는 바로 앞 live 메타의 JPEG
+  ws.onmessage = e => typeof e.data === 'string' ? handle(JSON.parse(e.data)) : showLiveJpeg(e.data);
   ws.onclose = () => { setConn(false); setTimeout(connect, 1000); };
 }
 function setConn(ok){
@@ -169,10 +170,14 @@ function handle(m){
 }
 
 function showLive(m){
-  $('live').src = 'data:image/jpeg;base64,' + m.jpeg;
+  $('live-tag').textContent = `${m.stream_id}  프레임 ${m.frame_id}`;
+}
+function showLiveJpeg(blob){
+  const old = $('live').src;
+  $('live').src = URL.createObjectURL(blob);
+  if (old.startsWith('blob:')) URL.revokeObjectURL(old);  // 안 풀면 프레임마다 메모리가 쌓임
   $('live').hidden = false;
   $('live-empty').hidden = true;
-  $('live-tag').textContent = `${m.stream_id}  프레임 ${m.frame_id}`;
 }
 
 function addResult(m){

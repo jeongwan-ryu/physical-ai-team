@@ -43,12 +43,12 @@ class Dashboard:
     """대시보드 연결 하나가 보낼 거리. 느린 화면이 다른 연결이나 파이프라인을 막지 않게 한다."""
 
     def __init__(self):
-        self.live = None  # 라이브 슬롯: 최신 프레임 하나만 (덮어씀)
+        self.live = None  # 라이브 슬롯: 최신 프레임 하나만 (덮어씀). (메타 JSON, JPEG 바이트)
         self.results = deque(maxlen=100)  # 넘치면 가장 오래된 결과부터 버림
         self.wake = asyncio.Event()
 
-    def push_live(self, msg):
-        self.live = msg
+    def push_live(self, meta, jpeg):
+        self.live = (meta, jpeg)
         self.wake.set()
 
     def push_result(self, msg):
@@ -57,7 +57,7 @@ class Dashboard:
 
 
 def b64(data: bytes) -> str:
-    # ponytail: 대시보드로 JPEG를 base64 JSON으로 보냄(33% 커짐). 대역폭이 문제면 바이너리 프레임으로
+    # ponytail: 결과 카드 JPEG는 아직 base64 JSON(33% 커짐). 초당 1건 안팎이라 둠, 늘면 live처럼 바이너리로
     return base64.b64encode(data).decode()
 
 
@@ -163,9 +163,9 @@ async def ingest(ws: WebSocket, stream_id: str = "default"):
             frame = FrameMeta(frame_id=fid, stream_id=stream_id, ts_recv=time.time())
             stats["frames_in"] += 1
             if dashboards:
-                msg = json.dumps({"type": "live", "stream_id": stream_id, "frame_id": fid, "jpeg": b64(jpeg)})
+                meta = json.dumps({"type": "live", "stream_id": stream_id, "frame_id": fid})
                 for d in dashboards:
-                    d.push_live(msg)
+                    d.push_live(meta, jpeg)
             if c2_q.full():  # C2가 밀리면 가장 오래된 프레임을 버림
                 c2_q.get_nowait()
                 stats["frames_dropped"] += 1
@@ -176,7 +176,8 @@ async def ingest(ws: WebSocket, stream_id: str = "default"):
 
 @app.websocket("/ws/dashboard")
 async def dashboard(ws: WebSocket):
-    """live(원본), result(판정+마킹 이미지), stats(1초마다) 메시지를 JSON 텍스트로 보냄."""
+    """result(판정+마킹 이미지), stats(1초마다)는 JSON 텍스트. live는 JSON 텍스트(메타) 뒤에 JPEG 바이너리.
+    라이브는 초당 여러 장이라 base64(33% 커짐)와 브라우저 디코드 부담을 없앰."""
     await ws.accept()
     d = Dashboard()
     dashboards.add(d)
@@ -189,8 +190,9 @@ async def dashboard(ws: WebSocket):
                 pass
             d.wake.clear()
             if d.live:
-                msg, d.live = d.live, None
-                await ws.send_text(msg)
+                (meta, jpeg), d.live = d.live, None
+                await ws.send_text(meta)  # 바로 뒤의 바이너리 메시지가 이 프레임의 JPEG
+                await ws.send_bytes(jpeg)
             while d.results:
                 await ws.send_text(d.results.popleft())
             if time.time() - last_stats >= 1:
