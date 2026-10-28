@@ -1,0 +1,57 @@
+# 설계 8장. 실행 전: cp .env.example .env, bash scripts/make-cert.sh {PC IP}
+services:
+  edge:
+    image: nginx:1.27
+    ports: ["443:443"]
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge/certs:/certs:ro
+      - ./web:/usr/share/nginx/html:ro
+    depends_on: [c1-gateway]
+    networks: [front]
+
+  c1-gateway:
+    build: { context: ., dockerfile: c1_gateway/Dockerfile }
+    env_file: .env
+    environment:
+      C2_URL: http://c2-preprocess:8000
+      C3_URL: http://c3-lb:80
+      C4_URL: http://c4-visualizer:8000
+    networks: [front, back]
+
+  c2-preprocess:
+    build: { context: ., dockerfile: c2_preprocess/Dockerfile }
+    env_file: .env
+    networks: [back]            # 상태 보유: 레플리카 1개 고정
+
+  c3-lb:
+    image: nginx:1.27
+    volumes: [./c3_lb/nginx.conf:/etc/nginx/nginx.conf:ro]
+    depends_on:
+      c3-sam2: { condition: service_healthy }
+    networks: [back]
+
+  c3-sam2:
+    build: { context: ., dockerfile: c3_sam2/Dockerfile }
+    env_file: .env
+    volumes: [./weights:/weights:ro]
+    deploy:
+      replicas: 3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 90s         # SAM 2 로딩 시간
+    networks: [back]
+
+  c4-visualizer:
+    build: { context: ., dockerfile: c4_visualizer/Dockerfile }
+    env_file: .env
+    volumes: [./data:/data]
+    networks: [back]
+
+networks:
+  front:
+  back:
+    internal: true              # 외부 인터넷 차단
