@@ -24,18 +24,22 @@ idf.py build flash monitor
 
 ## 역할
 
-| | 담당 | 파일 |
-|---|---|---|
-| A | 펌웨어-네트워크, 하드웨어(전원·거치), 통합 테스트 | `firmware/main/{main.c,net.c,Kconfig.projbuild}` |
-| B | 펌웨어-모델 | `firmware/main/detect.cpp`, `firmware/sdkconfig.defaults`, `idf_component.yml` |
-| C | bridge, 인프라 | `bridge/`, `mosquitto/`, `docker-compose.yml`, `tools/` |
-| D | 프론트 | `web/` |
+| | 담당 | 파일 | 완료 기준 |
+|---|---|---|---|
+| A | 펌웨어-네트워크, 하드웨어(전원·거치), 통합 테스트 | `firmware/main/{main.c,net.c,Kconfig.projbuild}` | Wi-Fi 끊었다 복구 시 자동 재접속, `mosquitto_sub`로 발행 확인 |
+| B | 펌웨어-모델, 빌드 설정 | `firmware/main/{detect.cpp,idf_component.yml,CMakeLists.txt}`, `firmware/{sdkconfig.defaults,CMakeLists.txt}` | 5fps 이상, 거리(0.5/1/2m)×조명별 검출률 표 |
+| C | bridge, 인프라 | `bridge/`, `mosquitto/`, `docker-compose.yml`, `tools/` | `docker compose up` 한 번에 기동, fake 스크립트로 SSE 이벤트 확인, `test_presence.py` 통과 |
+| D | 프론트 | `web/` | fake 이벤트만으로 재생/정지/오프라인 배너 동작 (bridge 전에는 콘솔 `setState()`, AGENTS.md 참조) |
+
+보드: **ESP32-S3 + 카메라 + PSRAM** 필수 (얼굴검출 모델이 S3/P4 전용). A는 카메라 없는 ESP32도 가능.
+
+LLM으로 개발할 때: 이 폴더에서 도구를 실행 (`AGENTS.md`/`CLAUDE.md` 자동 참조).
 
 브랜치: `feat/ztmc-fw-net`, `feat/ztmc-fw-detect`, `feat/ztmc-bridge`, `feat/ztmc-web` (main에서 분기, PR로 merge)
 
 ## 인터페이스 계약
 
-> 이 섹션, `firmware/main/common.h`, `docker-compose.yml` 변경은 4명 전원 승인 후 merge.
+> 이 섹션, `firmware/main/common.h` 변경은 4명 전원 승인 후 merge.
 
 ### 1. ESP32 → mosquitto (MQTT)
 
@@ -55,7 +59,8 @@ data: {"state":"present"}
 
 - `state`: `present` | `absent` | `offline`
 - 접속 즉시 현재 상태 1회, 이후 바뀔 때만 전송
-- 프론트: `present` → `play()`, `absent` → `pause()`, `offline` → `pause()` + "카메라 연결 끊김" 배너
+- 프론트: `present` → `playVideo()`, `absent` → `pauseVideo()`, `offline` → `pauseVideo()` + "카메라 연결 끊김" 배너
+- SSE 연결 오류(bridge 다운)도 `offline`으로 취급
 
 ### 3. bridge 상태머신
 
