@@ -9,4 +9,10 @@ menu "Zero-Touch Media"
     config CAM_ID
         string "Camera ID (topic: ztmc/<CAM_ID>/face)"
         default "cam1"
+    config FAKE_DETECT
+        bool "가짜 검출 사용 (카메라 없이 0.9/0 1초 간격 토글)"
+        default n
+        help
+            켜면 detect_start 대신 가짜 score를 큐에 넣는다.
+            카메라 없는 보드로 네트워크/MQTT만 테스트할 때 사용.
 endmenu
