@@ -46,6 +46,12 @@ function applyState() {
   else player.pauseVideo();
 }
 
+// 영상 교체. cue 직후 playVideo()는 무시되므로 present면 load로 바로 재생
+function switchVideo(videoId) {
+  if (state === "present") player.loadVideoById(videoId);
+  else player.cueVideoById(videoId);
+}
+
 function setState(next) {
   if (!STATES.includes(next)) {
     console.warn("unknown state:", next);
@@ -78,8 +84,8 @@ function createPlayer(videoId) {
     events: {
       onReady: () => {
         playerReady = true;
-        if (pendingVideoId !== videoId) player.cueVideoById(pendingVideoId);
-        applyState();
+        if (pendingVideoId !== videoId) switchVideo(pendingVideoId);
+        else applyState();
       },
       onError: (e) => {
         if (e.data === 101 || e.data === 150) {
@@ -109,10 +115,7 @@ form.addEventListener("submit", (e) => {
   pendingVideoId = videoId;
   if (player) {
     // 이미 있는 플레이어는 영상만 교체 (ready 전이면 onReady에서 교체)
-    if (playerReady) {
-      player.cueVideoById(videoId);
-      applyState();
-    }
+    if (playerReady) switchVideo(videoId);
   } else if (apiReady) {
     createPlayer(videoId);
   }
