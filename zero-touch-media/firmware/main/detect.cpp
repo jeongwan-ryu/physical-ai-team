@@ -62,6 +62,8 @@ static void detect_task(void *arg)
     QueueHandle_t out = (QueueHandle_t)arg;
     HumanFaceDetect *detector = new HumanFaceDetect();
     int frames = 0;
+    int faces = 0;         // 구간 내 얼굴 검출 프레임 수 (검출률 측정용)
+    float max_score = 0.0f;
     int64_t t0 = esp_timer_get_time();
 
     while (true) {
@@ -87,10 +89,19 @@ static void detect_task(void *arg)
         esp_camera_fb_return(fb);
         xQueueOverwrite(out, &score);
 
+        if (score > 0.0f) {
+            faces++;
+        }
+        if (score > max_score) {
+            max_score = score;
+        }
         if (++frames == FPS_LOG_FRAMES) {
             int64_t t1 = esp_timer_get_time();
-            ESP_LOGI(TAG, "%.1f fps, last score %.2f", frames * 1e6 / (t1 - t0), score);
+            ESP_LOGI(TAG, "%.1f fps, face %d/%d (%d%%), max score %.2f",
+                     frames * 1e6 / (t1 - t0), faces, frames, faces * 100 / frames, max_score);
             frames = 0;
+            faces = 0;
+            max_score = 0.0f;
             t0 = t1;
         }
     }
