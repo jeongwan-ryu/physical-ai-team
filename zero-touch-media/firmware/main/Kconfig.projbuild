@@ -1,0 +1,12 @@
+menu "Zero-Touch Media"
+    config WIFI_SSID
+        string "Wi-Fi SSID"
+    config WIFI_PASS
+        string "Wi-Fi password"
+    config MQTT_URI
+        string "MQTT broker URI (노트북 IP)"
+        default "mqtt://192.168.0.10:1883"
+    config CAM_ID
+        string "Camera ID (topic: ztmc/<CAM_ID>/face)"
+        default "cam1"
+endmenu

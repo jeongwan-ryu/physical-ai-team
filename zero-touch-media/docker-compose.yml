@@ -1,0 +1,19 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]   # ESP32가 노트북IP:1883으로 접속
+    volumes: ["./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
+    restart: unless-stopped
+
+  bridge:
+    build: ./bridge
+    ports: ["8080:8080"]   # 브라우저: http://localhost:8080
+    volumes: ["./web:/web:ro"]
+    environment:
+      MQTT_HOST: mosquitto
+      SCORE_TH: ${SCORE_TH:-0.5}
+      PRESENT_MS: ${PRESENT_MS:-300}
+      ABSENT_MS: ${ABSENT_MS:-1500}
+      STALE_MS: ${STALE_MS:-2000}
+    depends_on: [mosquitto]
+    restart: unless-stopped
