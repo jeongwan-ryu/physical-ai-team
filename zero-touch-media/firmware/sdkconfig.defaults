@@ -1,0 +1,3 @@
+# B 담당: 보드에 맞게 조정 (PSRAM 모드/플래시 크기는 보드마다 다름)
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_SPIRAM=y

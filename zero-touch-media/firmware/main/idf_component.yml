@@ -1,0 +1,5 @@
+# B 담당: 첫 빌드 후 버전 고정, 생성되는 dependencies.lock 커밋
+dependencies:
+  idf: ">=5.3"
+  espressif/esp32-camera: "*"
+  espressif/human_face_detect: "*"
