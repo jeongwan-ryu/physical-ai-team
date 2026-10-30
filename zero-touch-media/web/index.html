@@ -1,8 +1,49 @@
 <!doctype html>
 <!-- D 담당: URL 입력 + 시작 버튼 + YouTube IFrame + 상태 배지 -->
 <html lang="ko">
-<head><meta charset="utf-8"><title>Zero-Touch Media</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zero-Touch Media</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 20px; margin: 8px 0; }
+  #badge { padding: 4px 12px; border-radius: 999px; font-weight: bold; color: #fff; }
+  #badge.present { background: #2e7d32; }
+  #badge.absent  { background: #ef6c00; }
+  #badge.offline { background: #616161; }
+  #banner { margin: 12px 0; padding: 10px 14px; border-radius: 6px; background: #c62828; color: #fff; }
+  #notice { margin: 12px 0; padding: 10px 14px; border-radius: 6px; background: #f9a825; color: #111; }
+  form { display: flex; gap: 8px; margin: 12px 0; }
+  input { flex: 1; min-width: 0; padding: 8px; font-size: 16px; }
+  button { padding: 8px 16px; font-size: 16px; cursor: pointer; }
+  #player-wrap { aspect-ratio: 16 / 9; background: #000; }
+  #player-wrap iframe { width: 100%; height: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
 <body>
+<main>
+  <header>
+    <h1>Zero-Touch Media</h1>
+    <span id="badge" class="offline">offline</span>
+  </header>
+
+  <div id="banner" hidden>카메라 연결 끊김</div>
+
+  <form id="url-form">
+    <input id="url" type="url" placeholder="YouTube URL (watch?v= / youtu.be / shorts)" required>
+    <button type="submit">시작</button>
+  </form>
+
+  <div id="notice" hidden></div>
+
+  <div id="player-wrap"><div id="player"></div></div>
+</main>
+
 <script src="app.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>
