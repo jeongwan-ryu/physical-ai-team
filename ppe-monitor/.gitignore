@@ -1,0 +1,15 @@
+# 비밀값
+.env
+secrets.h
+
+# 모델 파일 (GitHub Release로 전달)
+edge/models/*
+!edge/models/.gitkeep
+*.pt
+*_ncnn_model/
+
+# 실행 중 생기는 파일
+*.db
+data/
+node_modules/
+dist/
