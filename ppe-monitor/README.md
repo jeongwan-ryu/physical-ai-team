@@ -16,7 +16,6 @@
 curl -L -o edge/models/best.pt https://huggingface.co/Hansung-Cho/yolov8-ppe-detection/resolve/main/best.pt
 cp .env.example .env
 cp edge/.env.example edge/.env
-# edge/data/sample.mp4 : E가 공유한 시연 영상을 각자 화면 녹화해서 저장 (ESP32 없이 개발할 때 사용, 아래 '시연 영상' 참고)
 ```
 
 server와 대시보드 (노트북 또는 EC2):
@@ -31,18 +30,18 @@ docker compose up                   # 코드 수정 후에는 docker compose res
 docker compose run --rm edge python tests/test_compliance.py
 ```
 
-Pi 속도 확인 (A, 오전에 한 번):
+Pi 속도 확인 (A, 오전에 한 번. ultralytics 이미지에 들어 있는 예제 사진 2장 사용):
 ```sh
 docker run --rm -v $PWD/edge/models:/models -v $PWD/edge/data:/data ultralytics/ultralytics:8.4.198-arm64 \
-  yolo predict model=/models/best.pt source=/data/sample.mp4 imgsz=640
-# 로그의 프레임당 처리 시간이 1000ms 안쪽이면 그대로 진행.
+  yolo predict model=/models/best.pt source=/ultralytics/ultralytics/assets imgsz=640
+# 로그에서 두 번째 사진의 inference 시간이 1000ms 안쪽이면 그대로 진행 (첫 장은 준비 시간 때문에 느림).
 # 느리면 ① edge/.env 에서 IMGSZ=320 ② 그래도 느리면 노트북에서 NCNN 변환 후 MODEL_PATH만 변경 (코드 그대로)
 #   yolo export model=edge/models/best.pt format=ncnn imgsz=640   → MODEL_PATH=/models/best_ncnn_model
 ```
 
 ## 시연 영상
 
-**E가 시작 30분 안에 시연 영상을 골라 팀 채널에 URL을 공유합니다.**
+**E가 1:30 중간 점검까지 시연 영상을 골라 팀 채널에 URL을 공유합니다.** 대시보드에서 재생하고, A가 오후에 이 영상으로 카메라를 맞춥니다.
 
 고르는 기준:
 - **퍼가기 허용:** 아래 명령 결과가 `200`이면 대시보드에서 재생 가능, `401`이면 퍼가기 금지입니다.
@@ -61,8 +60,8 @@ docker run --rm -v $PWD/edge/models:/models -v $PWD/edge/data:/data ultralytics/
 두 후보 모두 퍼가기 허용은 확인했지만, 장면은 영상당 3~4곳만 확인했습니다. 안전모 미착용이 뚜렷한 영상은 아직 찾지 못했습니다.
 
 - 시연 흐름 예시: 정상 장면(초록) → 위반 장면(빨강, 위반 기록 증가) → 다른 노트북에서 기록 확인
-- **개발용 `sample.mp4`는 각자 만듭니다.** E가 공유한 영상을 브라우저에서 틀어 놓고 OS 기본 화면 녹화(Ubuntu `Ctrl+Shift+Alt+R`, Windows `Win+Alt+R`, macOS `Cmd+Shift+5`)로 1분 정도 녹화해서 `edge/data/sample.mp4`로 저장합니다.
-- **YouTube 영상을 다운로드 도구(`yt-dlp` 등)로 받거나 코드에서 YouTube URL을 직접 읽지 않습니다.** YouTube 약관 위반입니다.
+- 시연 영상은 대시보드에서 재생하고 ESP32가 화면을 찍는 용도로만 씁니다. **코드에서 YouTube 영상을 내려받거나 직접 읽지 않습니다**(`yt-dlp` 등, YouTube 약관 위반).
+- ESP32 없이 개발할 때는 영상 대신 ultralytics 이미지에 들어 있는 예제 사진(`bus.jpg`, 안전모 미착용 인원)을 입력으로 씁니다. `edge/.env.example`의 기본값입니다.
 - 다른 장소의 노트북에서 대시보드를 보려면 그 공인 IP를 EC2 보안 그룹의 80번에 추가합니다.
 
 ## 역할
@@ -71,19 +70,18 @@ docker run --rm -v $PWD/edge/models:/models -v $PWD/edge/data:/data ultralytics/
 |---|---|---|---|
 | A | ESP32-CAM, 시연 환경, Pi (Pi 보유자) | `firmware/`, `docs/demo-setup.md` | `curl http://<ESP32_IP>/capture`로 640×480 JPEG 수신, 오전에 Pi FPS 확인, Pi에서 edge 컨테이너 실행, 카메라가 대시보드 플레이어를 정면으로 촬영 |
 | B | 모델 확인, 착용 판정 로직 | `edge/app/compliance.py`, `edge/tests/test_compliance.py` | `test_compliance.py` 통과, 시연 영상에서 `CONF_TH`·`HEAD_RATIO` 값을 정해 팀에 공유 |
-| C | edge 메인 루프, 통합 리드 | `edge/app/main.py`, `edge/compose.yml`, `edge/.env.example` | `SOURCE=/data/sample.mp4`로 실행하면 server에 interval·violation 이벤트와 프레임이 도착 |
+| C | edge 메인 루프, 통합 리드 | `edge/app/main.py`, `edge/compose.yml`, `edge/.env.example` | 기본 `SOURCE`(예제 사진)로 실행하면 server에 interval·violation 이벤트와 프레임이 도착 |
 | D | server, EC2 배포 | `server/`, `docker-compose.yml`, `.env.example` | `docs/interface.md` 8장의 curl이 모두 정상 응답, EC2에서 집 IP로만 접속 가능 |
-| E | 대시보드, 시연 영상 선정 | `dashboard/` | 시연 영상 URL 공유(시작 30분 안), 큰 YouTube 플레이어(영상 버튼 전환), 실시간 프레임, 인원·미착용 수, offline 표시, 위반 목록(사진 포함) 동작 |
+| E | 대시보드, 시연 영상 선정 | `dashboard/` | 시연 영상 URL 공유(1:30까지), 큰 YouTube 플레이어(영상 버튼 전환), 실시간 프레임, 인원·미착용 수, offline 표시, 위반 목록(사진 포함) 동작 |
 
 ## 시간표
 
 | 시간 | 할 일 |
 |---|---|
-| 0:00–0:30 | 전원: interface.md 읽기, `best.pt` 받기. **A: Pi에서 `docker pull ultralytics/ultralytics:8.4.198-arm64` 먼저 시작** (약 1 GB). **E: 시연 영상을 골라 URL 공유** |
-| 0:30 | A·B·C: E가 공유한 영상으로 `sample.mp4` 화면 녹화(A는 Pi의 `edge/data/`에도 복사). 공유가 늦어지면 후보 영상으로 먼저 녹화 |
-| 0:30–3:30 | 각자 개발 (LLM 사용). **A: 이미지가 받아지는 대로 Pi FPS 확인.** **1:30 중간 점검:** D의 curl 응답, A의 `/capture`, B의 판정 함수 테스트 |
+| 0:00–0:30 | 전원: interface.md 읽기, `best.pt` 받기. **A: Pi에서 `docker pull ultralytics/ultralytics:8.4.198-arm64` 먼저 시작** (약 1 GB). |
+| 0:30–3:30 | 각자 개발 (LLM 사용). **A: 이미지가 받아지는 대로 Pi FPS 확인.** **1:30 중간 점검:** D의 curl 응답, A의 `/capture`, B의 판정 함수 테스트, E의 시연 영상 URL |
 | 3:30–4:00 | 점심 |
-| 4:00–5:30 | **노트북에서 1차 통합:** sample.mp4 → edge → server → 대시보드. 그다음 SOURCE를 ESP32로 바꿔서 확인 |
+| 4:00–5:30 | **노트북에서 1차 통합:** 예제 사진 → edge → server → 대시보드. 그다음 SOURCE를 ESP32로 바꾸고, B는 실제 카메라 화면을 보며 `CONF_TH`·`HEAD_RATIO` 조정 |
 | 5:30–6:30 | Pi와 EC2로 옮겨서 실행. 느리면 `IMGSZ=320` → NCNN 순서로 대응 |
 | 6:30–7:30 | 기준값 조정, 리허설, **백업용 시연 녹화** |
 

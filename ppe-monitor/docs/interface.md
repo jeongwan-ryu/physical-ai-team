@@ -67,7 +67,7 @@ GET http://<ESP32_IP>/capture
 - Arduino `CameraWebServer` 예제에 있는 기능 그대로입니다(포트 80).
 - 해상도는 VGA 640×480으로 펌웨어에서 고정합니다.
 - edge의 요청 타임아웃은 3초이고, 실패하면 1초 뒤에 다시 시도합니다.
-- **개발할 때:** edge의 `SOURCE`가 `http`로 시작하지 않으면 영상 파일 경로로 보고 파일에서 프레임을 읽습니다.
+- **개발할 때:** edge의 `SOURCE`가 `http`로 시작하지 않으면 이미지 파일 경로로 보고, 매 루프 같은 사진을 읽습니다. 기본값은 ultralytics 이미지에 들어 있는 예제 사진 `/ultralytics/ultralytics/assets/bus.jpg`입니다.
 
 ---
 
@@ -236,7 +236,7 @@ server의 데이터 경로는 `/data`로 고정입니다. DB는 `/data/ppe.db`, 
 | `DEVICE_ID` | `pi-01` | |
 | `DEVICE_KEY` | `change-me` | |
 | `SERVER_URL` | `http://host.docker.internal` | EC2를 쓸 때는 `http://<EC2 IP>`. 끝에 `/` 없음 |
-| `SOURCE` | `/data/sample.mp4` | 각자 화면 녹화한 개발용 영상. ESP32를 쓸 때는 `http://<ESP32_IP>/capture` |
+| `SOURCE` | `/ultralytics/ultralytics/assets/bus.jpg` | 개발용 예제 사진. ESP32를 쓸 때는 `http://<ESP32_IP>/capture` |
 | `MODEL_PATH` | `/models/best.pt` | NCNN으로 변환했다면 `/models/best_ncnn_model` |
 | `IMGSZ` | `640` | Pi에서 느리면 `320` |
 | `CONF_TH` | `0.4` | 보정값 |

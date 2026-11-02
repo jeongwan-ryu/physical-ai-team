@@ -7,7 +7,7 @@ secrets.h
 edge/models/*
 !edge/models/.gitkeep
 
-# edge 실행 데이터 (sample.mp4, events.jsonl)
+# edge 실행 데이터 (events.jsonl)
 edge/data/*
 !edge/data/.gitkeep
 

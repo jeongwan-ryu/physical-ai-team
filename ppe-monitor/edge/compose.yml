@@ -17,6 +17,6 @@ services:
       - ./app:/edge/app:ro
       - ./tests:/edge/tests:ro
       - ./models:/models:ro        # best.pt
-      - ./data:/data               # sample.mp4, events.jsonl
+      - ./data:/data               # events.jsonl
     extra_hosts:
       - "host.docker.internal:host-gateway"   # 같은 PC에서 띄운 server에 접속할 때
