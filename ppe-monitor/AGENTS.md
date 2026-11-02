@@ -20,11 +20,12 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 | Pi가 ESP32에 `/capture`를 요청해서 가져감(pull). MJPEG 스트림(:81)은 쓰지 않음 | 처리 속도를 Pi가 결정하고, 스트림을 쓰면 OpenCV 버퍼 때문에 지연이 쌓임 |
 | 추론은 Pi에서 수행. 클라우드에는 판정 결과와 위반 스냅샷만 전송 | 대역폭, 비용, 개인정보 |
 | 모델은 Ultralytics YOLO11n, 클래스 3개(`person`, `helmet`, `vest`), NCNN으로 export | Pi 5 CPU에서 실시간 처리. 미착용은 모델이 아니라 edge가 판정 |
-| edge → server는 HTTPS REST. MQTT와 AWS IoT Core는 쓰지 않음 | 로컬에서 그대로 재현 가능, curl로 디버깅 가능 |
+| edge → server는 HTTP REST. MQTT와 AWS IoT Core는 쓰지 않음 | 로컬에서 그대로 재현 가능, curl로 디버깅 가능 |
 | 대시보드는 2초 간격 폴링. WebSocket과 SSE는 쓰지 않음 | 갱신 주기가 초 단위라 폴링으로 충분 |
 | AWS는 EC2 1대 + docker compose + S3. Lambda와 DynamoDB는 쓰지 않음 | 로컬과 운영 환경을 동일하게 유지 |
 | DB는 PostgreSQL 16, 테이블 1개. ORM과 마이그레이션 도구는 쓰지 않음 | 서버 시작 시 `CREATE TABLE IF NOT EXISTS`로 충분 |
-| 리버스 프록시는 Caddy(자동 HTTPS, Basic Auth). nginx는 쓰지 않음 | 인증서 발급·갱신 설정이 필요 없음 |
+| 리버스 프록시는 Caddy(Basic Auth). nginx는 쓰지 않음 | 설정이 짧음 |
+| HTTPS는 쓰지 않음. 대신 EC2 보안 그룹에서 80번을 **집 IP만** 허용 | 시연은 집에서만 함. 도메인·인증서 관리가 필요 없음 |
 | 사람 추적(tracking)과 YouTube Data API는 v0.1 범위 밖 | 요구사항에 없음 |
 
 ## 역할별 구현 메모
@@ -66,7 +67,7 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 - `main.py` 루프: 캡처 → 추론 → `judge` → 박스 그리기(정상은 초록, 위반은 빨강) → 프레임 PUT(`FRAME_PUSH_INTERVAL_S`마다) → 새 위반이 확정되면 `violation` 이벤트(이미지 포함), `REPORT_INTERVAL_S`마다 `interval` 이벤트를 큐에 넣습니다.
 - 시작할 때 `model.names`가 `{0:'person',1:'helmet',2:'vest'}`와 다르면 `sys.exit(1)`로 종료합니다.
 - `uploader.py`: 이벤트를 sqlite3의 `outbox(event_id PRIMARY KEY, meta TEXT, image BLOB, created REAL)` 테이블에 **먼저 저장**하고, 별도 스레드가 전송합니다. 응답 코드별 처리(삭제, `failed.jsonl` 기록, 백오프)는 interface 5.1 표를 따릅니다. 프레임 PUT은 큐를 거치지 않고, 실패하면 버립니다.
-- `compose.yml`: `restart: unless-stopped`, `env_file: .env`, `./models:/models:ro`, `edge-data:/data` 볼륨을 설정합니다. 서버가 같은 PC에서 돌고 있으면 `SERVER_URL=http://host.docker.internal`와 `extra_hosts: ["host.docker.internal:host-gateway"]`를 씁니다.
+- `compose.yml`은 **이미 작성되어 있습니다**(`./models:/models:ro`, `./data:/data`, `host.docker.internal`). Dockerfile은 이 파일에 맞춰 작성합니다. 서버가 같은 PC에서 돌고 있으면 `SERVER_URL=http://host.docker.internal`을 씁니다.
 - 테스트는 assert 기반 `tests/test_compliance.py` 하나만 둡니다(pytest 없이). `judge`의 정상·안전모 미착용·조끼 미착용·사람 0명 경우와 `Debouncer`의 확정·해제·깜빡임 무시를 확인합니다.
 
 ### D — `server/`, `infra/`, `docker-compose.yml`, `.env.example`, `tools/`
@@ -79,10 +80,8 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 - `online`은 서버 시각 기준으로 판단합니다(마지막 `received_at`이나 프레임 수신이 15초 이내). Pi 시계가 틀려도 영향받지 않게 하기 위해서입니다.
 - `stats`: `date_bin()`으로 구간을 나눕니다. `helmet_rate = SUM(person_count - no_helmet) / NULLIF(SUM(person_count), 0)`로, `interval` 이벤트만 집계합니다.
 - `storage.py`: S3 키는 `snapshots/{device_id}/{YYYY}/{MM}/{DD}/{event_id}.jpg`, presigned GET은 3600초로 만듭니다. `S3_BUCKET`이 비어 있으면 `MEDIA_DIR`에 저장하고 `/media`로 정적 서빙합니다. EC2에서는 **IAM 역할(인스턴스 프로파일)**로 S3 권한을 주고, `.env`에 AWS 키를 넣지 않습니다.
-- `docker-compose.yml`: `caddy`(80/443, `caddy_data` 볼륨), `server`(개발 편의상 `127.0.0.1:8000`에도 노출), `db`(`postgres:16-alpine`, 볼륨), `dashboard`.
-- `Caddyfile`: 사이트 주소는 `{$SITE_ADDRESS}`(로컬은 `:80`, 운영은 도메인)입니다. `/api/*`와 `/media/*`는 `server:8000`으로, 나머지는 `dashboard:80`으로 보냅니다. `basic_auth`는 interface 8장대로 쓰기 경로 2개를 제외하고 적용합니다(`BASIC_AUTH_USER`, `BASIC_AUTH_HASH`).
-- `.env.example`에는 interface 9장의 키 전부와 `SITE_ADDRESS`, `BASIC_AUTH_USER`, `BASIC_AUTH_HASH`, `POSTGRES_PASSWORD`를 적습니다.
-- `setup-ec2.sh`: Ubuntu 24.04에 Docker 설치, 레포 clone, `docker compose up -d`까지 수행합니다. 보안 그룹은 22(내 IP만), 80, 443을 엽니다. AWS Budgets 알람을 설정합니다.
+- `docker-compose.yml`, `infra/Caddyfile`, `.env.example`은 **이미 작성되어 있습니다**. server는 `0.0.0.0:8000`에서 worker 1개로 실행하고, `DATABASE_URL`과 `MEDIA_DIR`는 compose가 주입합니다. 이 세 파일을 수정할 때는 C와 E의 실행 방법이 깨지지 않는지 확인합니다.
+- `setup-ec2.sh`: Ubuntu 24.04에 Docker 설치, 레포 clone, `docker compose up -d`까지 수행합니다. 보안 그룹은 22와 80만 열고, **둘 다 집 공인 IP만** 허용합니다(443은 열지 않음). 집 IP가 바뀌면 보안 그룹을 갱신합니다. AWS Budgets 알람을 설정합니다.
 - `tools/fake_edge.py`는 **표준 라이브러리(urllib)만** 사용합니다. 기본 동작은 interface 형식의 무작위 interval 이벤트를 5초마다, 생성한 JPEG 프레임을 1초마다 보내는 것입니다. `--check` 옵션을 주면 interval 1건, violation 1건, 같은 event_id 재전송 1건을 보내 201/201/200 응답과 `/api/latest`의 인원 수를 assert로 확인하고 종료합니다. **E가 이 도구에 의존하므로 서버 뼈대와 함께 가장 먼저 만듭니다.**
 
 ### E — `dashboard/`
@@ -97,7 +96,7 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 - `ViolationLog`: `only_violations=true`로 조회해서 썸네일, 시각, 미착용 수를 보여 줍니다. 더 보기 버튼은 `next_before`를 사용합니다.
 - `StatsChart`: 1h/24h/7d 버튼을 두고, `helmet_rate`와 `vest_rate`를 선 그래프로 그립니다. `null`은 0이 아니라 끊긴 구간으로 표시합니다.
 - `image_url`과 `frame_url`은 받은 값을 그대로 씁니다. URL을 직접 조립하지 않습니다.
-- Dockerfile: `node:20-alpine`에서 빌드(`VITE_*`는 빌드할 때 `ARG`로 주입)하고, `caddy:2-alpine`에서 `/srv`를 `file-server`로 서빙합니다(포트 80).
+- Dockerfile: `node:20-alpine`에서 빌드하고(`VITE_API_BASE`, `VITE_YOUTUBE_VIDEO_ID`는 compose가 build `args`로 넘기므로 `ARG`로 받음), `caddy:2-alpine`에서 `caddy file-server --root /srv --listen :80`으로 서빙합니다.
 - 서버가 준비되기 전에는 플레이어와 레이아웃부터 만들고, D의 서버와 `fake_edge.py`가 나오면 그것으로 데이터를 연결합니다. mock 서버는 따로 만들지 않습니다.
 
 ## 검증

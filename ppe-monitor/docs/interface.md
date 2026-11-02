@@ -1,6 +1,6 @@
 # 팀 간 데이터 인터페이스 명세
 
-> 버전: v0.1 (2026-11-02) · 상태: 초안. 첫 회의에서 확정합니다.
+> 버전: v0.2 (2026-11-02) · 상태: 초안. 첫 회의에서 확정합니다.
 
 PPE(안전모·조끼) 착용 모니터링 서비스의 **구성요소끼리 주고받는 데이터 형식**을 정의합니다.
 각 구성요소의 내부 구현은 담당자가 자유롭게 정하되, 이 문서에 적힌 경계는 반드시 지킵니다.
@@ -37,8 +37,8 @@ PPE(안전모·조끼) 착용 모니터링 서비스의 **구성요소끼리 주
 |---|---|---|---|
 | I1 | ESP32-CAM → edge | HTTP (edge가 요청해서 가져감) | A ↔ C |
 | I2 | ML → edge | 모델 파일 + 클래스 정의 | B ↔ C |
-| I3 | edge → 서버 | HTTPS REST | C ↔ D |
-| I4 | 서버 → 대시보드 | HTTPS REST | D ↔ E |
+| I3 | edge → 서버 | HTTP REST | C ↔ D |
+| I4 | 서버 → 대시보드 | HTTP REST | D ↔ E |
 
 외부 API는 **YouTube IFrame Player API** 하나뿐이며 대시보드에서만 사용합니다(7장 참고). 이 문서에서 "서버 API"라고 하면 우리가 만드는 `/api/...` 엔드포인트를 뜻합니다.
 
@@ -308,6 +308,7 @@ Body: 박스를 그려 넣은 JPEG (1 MB 이하)
 | `POST /api/events`, `PUT /api/devices/*/frame` | `X-Device-Key` (서버의 `DEVICE_KEYS`에 등록된 값) |
 | 그 외 모든 경로 (대시보드, 조회 API) | 운영 환경에서는 Caddy의 **Basic Auth**. 위 두 쓰기 경로는 Basic Auth 대상에서 제외 |
 
+- **HTTPS는 사용하지 않습니다**(시연은 집에서만 함). 대신 EC2 보안 그룹에서 80번 포트를 **집 공인 IP만** 허용합니다.
 - 위반 스냅샷에는 사람이 찍히므로 **S3 버킷은 비공개**로 두고 presigned URL로만 접근합니다.
 - 토큰과 비밀번호는 `.env`에만 저장하고 Git에는 커밋하지 않습니다(`.env.example`에는 키 이름만 적음).
 
@@ -320,7 +321,7 @@ Body: 박스를 그려 넣은 JPEG (1 MB 이하)
 |---|---|---|
 | `DEVICE_ID` | `pi-01` | |
 | `DEVICE_KEY` | `change-me` | |
-| `SERVER_URL` | `https://ppe.example.com` | 끝에 `/` 없음 |
+| `SERVER_URL` | `http://<EC2 공인 IP>` | 끝에 `/` 없음 |
 | `SOURCE` | `http://192.168.0.50/capture` 또는 `/data/sample.mp4` | 3장 참고 |
 | `MODEL_PATH` | `/models/ppe-v1.0_ncnn_model` | |
 | `CONF_TH` | `0.4` | 보정값 |
@@ -378,3 +379,4 @@ curl "$SERVER_URL/api/stats?device_id=pi-01&range=1h"
 | 버전 | 날짜 | 변경 내용 | 승인 |
 |---|---|---|---|
 | v0.1 | 2026-11-02 | 초안 | - |
+| v0.2 | 2026-11-02 | HTTPS 대신 HTTP + 보안 그룹(집 IP만)으로 변경, 담당 표기를 A~E로 변경 | - |

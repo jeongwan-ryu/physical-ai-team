@@ -1,0 +1,15 @@
+# edge: Pi와 노트북에서 동일하게 사용합니다.
+#   cp ../.env.example .env  →  edge 항목 채우기  →  docker compose up -d --build
+# ./models : GitHub Release에서 받은 모델 폴더 (읽기 전용)
+# ./data   : 전송 대기열(queue.db), failed.jsonl, sample.mp4 (gitignore 대상)
+
+services:
+  edge:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./models:/models:ro
+      - ./data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 같은 PC에서 띄운 서버에 접속할 때 (Linux)

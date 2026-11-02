@@ -3,7 +3,7 @@
 작업 현장 인원의 안전모·조끼 착용 여부를 판정하고, 그 결과를 클라우드에 자동으로 기록합니다.
 
 ```
-[모니터: YouTube 현장 영상] → [ESP32-CAM] ─GET /capture─▶ [Raspberry Pi: edge] ─HTTPS─▶ [AWS EC2: caddy·server·db·dashboard] ─▶ 브라우저
+[모니터: YouTube 현장 영상] → [ESP32-CAM] ─GET /capture─▶ [Raspberry Pi: edge] ─HTTP─▶ [AWS EC2: caddy·server·db·dashboard] ─▶ 브라우저
                                (Arduino IDE, Docker 밖)       YOLO 추론 + 착용 판정          └──────── docker compose ────────┘   + S3(위반 스냅샷)
 ```
 
@@ -21,7 +21,7 @@ edge (Pi 또는 노트북):
 
 ```sh
 cd edge
-cp ../.env.example .env            # edge 항목 채우기. SOURCE=/data/sample.mp4 이면 ESP32 없이 동작
+cp ../.env.example .env            # edge 항목 채우기. edge/data/sample.mp4 를 두면 ESP32 없이 동작
 docker compose up -d --build
 ```
 
@@ -32,7 +32,7 @@ docker compose up -d --build
 | A | ESP32-CAM, 시연 환경, Pi 기본 세팅 | `firmware/`, `docs/demo-setup.md` | `curl http://<ESP32_IP>/capture`로 640×480 JPEG 수신, 재부팅 후에도 설정 유지, 1fps로 10분 연속 요청해도 오류 없음, 거치 위치·노출값·IP를 `demo-setup.md`에 기록, Pi에 Docker 설치와 NTP 동기화 확인 |
 | B | ML 모델 | `ml/` | GitHub Release `model-v1.0` 업로드, `ml/results.md`에 클래스별 mAP50(공개 데이터 val, 모니터 재촬영 val 각각)과 Pi 5 FPS 기록 |
 | C | edge (Pi 앱), 전체 통합 리드 | `edge/` | `SOURCE=sample.mp4`로 실행해 서버에 이벤트 도착, 서버를 껐다 켜면 쌓인 큐가 모두 전송됨, 클래스 이름이 다른 모델을 넣으면 즉시 종료, `test_compliance.py` 통과 |
-| D | server, 인프라, 가짜 데이터 도구 | `server/`, `infra/`, `docker-compose.yml`, `.env.example`, `tools/` | `docker compose up` 한 번에 전체 기동, `python3 tools/fake_edge.py --check` 통과, EC2에서 HTTPS 접속 가능 |
+| D | server, 인프라, 가짜 데이터 도구 | `server/`, `infra/`, `docker-compose.yml`, `.env.example`, `tools/` | `docker compose up` 한 번에 전체 기동, `python3 tools/fake_edge.py --check` 통과, EC2에서 집 IP로만 대시보드 접속 가능 |
 | E | 대시보드 | `dashboard/` | `fake_edge.py` 데이터만으로 현황·위반 로그·착용률 차트·실시간 프레임·offline 배지 동작, 퍼가기 금지 영상이면 안내 문구 표시 |
 
 - `docs/interface.md` 변경은 PR을 올리고, 해당 연결 지점의 양쪽 담당자가 승인해야 merge합니다.
