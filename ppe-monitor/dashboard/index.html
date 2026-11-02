@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PPE Monitor</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      background: #111418;
+      color: #e8eaed;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #2a2f36;
+    }
+    h1 { margin: 0; font-size: 18px; }
+    h2 { margin: 0 0 8px; font-size: 14px; color: #9aa0a6; font-weight: 600; }
+    .badge {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .badge.online  { background: #1e4620; color: #81c995; }
+    .badge.offline { background: #5c1d1d; color: #f28b82; }
+
+    main {
+      display: grid;
+      grid-template-columns: 64% 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    /* 왼쪽: YouTube 플레이어 (ESP32가 이 영역을 촬영) */
+    #player-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+    }
+    #player-wrap iframe, #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+    button {
+      padding: 6px 12px;
+      border: 1px solid #3c4043;
+      border-radius: 6px;
+      background: #202428;
+      color: #e8eaed;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button.active { background: #1a73e8; border-color: #1a73e8; }
+    input[type=text] {
+      flex: 1;
+      min-width: 200px;
+      padding: 6px 10px;
+      border: 1px solid #3c4043;
+      border-radius: 6px;
+      background: #202428;
+      color: #e8eaed;
+      font-size: 13px;
+    }
+    #video-msg { margin-top: 8px; font-size: 13px; color: #f28b82; min-height: 1em; }
+
+    /* 오른쪽: 실시간 프레임, 수치, 위반 목록 */
+    aside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .card { background: #1a1d21; border: 1px solid #2a2f36; border-radius: 8px; padding: 12px; }
+    #frame-box {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #5f6368;
+      font-size: 13px;
+    }
+    #frame { width: 100%; height: 100%; object-fit: contain; display: none; }
+    #frame-ts { margin-top: 6px; font-size: 12px; color: #9aa0a6; }
+
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .stat { text-align: center; padding: 8px 4px; border-radius: 6px; background: #202428; }
+    .stat .num { font-size: 28px; font-weight: 700; }
+    .stat .label { font-size: 12px; color: #9aa0a6; }
+    .stat.bad .num { color: #f28b82; }
+
+    #events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+    #events li {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #2a2f36;
+      font-size: 13px;
+    }
+    #events img { width: 96px; height: 72px; object-fit: cover; background: #000; border-radius: 4px; flex-shrink: 0; }
+    #events .time { font-weight: 600; }
+    #events .detail { color: #f28b82; }
+    #events .empty { color: #5f6368; border: 0; }
+
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PPE Monitor</h1>
+    <span id="badge" class="badge offline">offline</span>
+  </header>
+
+  <main>
+    <section>
+      <div id="player-wrap"><div id="player"></div></div>
+      <div class="controls" id="video-buttons"></div>
+      <div class="controls">
+        <input type="text" id="video-url" placeholder="YouTube URL 붙여넣기 (watch?v=, youtu.be/, shorts/)">
+        <button id="video-load">재생</button>
+      </div>
+      <div id="video-msg"></div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2>실시간 화면</h2>
+        <div id="frame-box">
+          <span id="frame-empty">아직 받은 화면이 없습니다</span>
+          <img id="frame" alt="실시간 화면">
+        </div>
+        <div id="frame-ts"></div>
+      </div>
+
+      <div class="card">
+        <h2>현재 상태</h2>
+        <div class="stats">
+          <div class="stat"><div class="num" id="person-count">0</div><div class="label">인원</div></div>
+          <div class="stat" id="stat-helmet"><div class="num" id="no-helmet">0</div><div class="label">안전모 미착용</div></div>
+          <div class="stat" id="stat-vest"><div class="num" id="no-vest">0</div><div class="label">조끼 미착용</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>위반 기록</h2>
+        <ul id="events"><li class="empty">위반 기록이 없습니다</li></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
