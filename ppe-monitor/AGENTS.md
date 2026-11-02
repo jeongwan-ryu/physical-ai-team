@@ -20,7 +20,8 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 |---|---|
 | ESP32는 Arduino IDE `CameraWebServer` 예제를 사용 | 필요한 `/capture`가 이미 있음 |
 | Pi가 ESP32에 `/capture`를 요청해서 가져감(pull). 스트림(:81)은 쓰지 않음 | 처리 속도를 Pi가 결정하고, 버퍼 지연이 없음 |
-| 모델은 Hugging Face `best.pt`(YOLOv8n)를 **변환 없이** ultralytics로 로드 | 변환 과정 자체가 위험 요소. 초당 1~2장이면 시연에 충분 |
+| 모델은 Hugging Face `best.pt`(YOLOv8n)를 **변환 없이** ultralytics로 로드. Pi에서 `IMGSZ=320`으로도 초당 1장이 안 나올 때만 NCNN으로 변환하고 `MODEL_PATH`만 바꿈(코드 동일). ONNX는 쓰지 않음 | 변환 과정 자체가 위험 요소. 초당 1~2장이면 시연에 충분. Pi(ARM CPU)에서는 NCNN이 ONNX보다 유리 |
+| 시연 영상은 E가 골라서 URL을 공유(기준과 후보는 README "시연 영상"). 개발용 `sample.mp4`는 그 영상을 각자 화면 녹화 | 모두 같은 영상으로 테스트. YouTube 다운로드는 약관 위반 |
 | edge는 ultralytics 공식 이미지를 그대로 쓰고 코드는 볼륨으로 연결. Dockerfile 없음 | torch를 빌드하는 시간이 없음. 코드를 고치면 restart만 하면 됨 |
 | server는 컨테이너 1개(FastAPI + 표준 라이브러리 sqlite3)이고, 대시보드도 직접 서빙 | DB 컨테이너, 프록시, 빌드 단계가 없음 |
 | 대시보드는 `index.html` + `app.js`만 사용. 프레임워크와 빌드 도구 없음 | 하루 안에 완성 가능 |
@@ -29,13 +30,14 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 
 ## 하지 않는 것
 
-NCNN 변환, fine-tune, 라벨링, PostgreSQL, Caddy·nginx, S3, 오프라인 큐와 재전송, 중복 방지 ID, 통계 API와 그래프, WebSocket·SSE, React, 사람 추적, YouTube Data API, HTTPS.
+YouTube 영상 다운로드(`yt-dlp` 등)와 코드에서 YouTube URL 읽기, ONNX 변환, fine-tune, 라벨링, PostgreSQL, Caddy·nginx, S3, 오프라인 큐와 재전송, 중복 방지 ID, 통계 API와 그래프, WebSocket·SSE, React, 사람 추적, YouTube Data API, HTTPS.
 
 ## 역할별 구현 메모
 
 ### A — `firmware/`, `docs/demo-setup.md` (Pi 보유자)
 
 - **가장 먼저:** Pi에 Docker를 설치하고(`curl -fsSL https://get.docker.com | sh`), `docker pull ultralytics/ultralytics:8.4.198-arm64`를 실행해 둡니다. 약 1 GB라 시간이 걸립니다.
+- **이미지가 받아지는 대로 FPS 확인:** 노트북에서 녹화한 `sample.mp4`를 Pi의 `edge/data/`에 복사해 두고, README의 "Pi 속도 확인" 명령을 실행합니다. 프레임당 1000ms가 넘으면 팀에 알리고 `IMGSZ=320`, 그다음 NCNN 순서로 대응합니다.
 - Arduino IDE에서 `파일 → 예제 → ESP32 → Camera → CameraWebServer`를 `firmware/esp32cam/CameraWebServer/`로 복사합니다.
   - 카메라 모델은 `CAMERA_MODEL_AI_THINKER`입니다(코어 버전에 따라 `.ino`나 `board_config.h`에 있음).
   - 보드 설정: `AI Thinker ESP32-CAM`, PSRAM `Enabled`, Partition `Huge APP`
@@ -71,7 +73,7 @@ NCNN 변환, fine-tune, 라벨링, PostgreSQL, Caddy·nginx, S3, 오프라인 �
 - 의존성은 ultralytics 이미지에 이미 있는 `ultralytics`, `cv2`, `numpy`, `requests`만 씁니다. Dockerfile은 만들지 않습니다(compose가 이미 작성되어 있음).
 - 시작할 때:
   - 환경변수를 읽습니다(interface 7장).
-  - `model = YOLO(MODEL_PATH)`로 모델을 로드합니다.
+  - `model = YOLO(MODEL_PATH)`로 모델을 로드합니다. `MODEL_PATH`는 `.pt` 파일이거나 NCNN 폴더일 수 있으며, 코드는 둘을 구분하지 않습니다.
   - `model.names`에 `Person`, `Hardhat`, `Safety Vest`가 하나라도 없으면 `sys.exit(1)`로 종료합니다.
 - 캡처:
   - `SOURCE`가 `http`로 시작하면 `requests.get(SOURCE, timeout=3)` 후 `cv2.imdecode`로 읽습니다. 실패하면 1초 쉬고 다시 시도합니다.
@@ -108,12 +110,13 @@ NCNN 변환, fine-tune, 라벨링, PostgreSQL, Caddy·nginx, S3, 오프라인 �
 
 ### E — `dashboard/index.html`, `dashboard/app.js`
 
-- **가장 먼저:** 시연용 YouTube 영상을 정합니다. 공사 현장 영상 중 안전모를 쓴 사람과 안 쓴 사람이 모두 나오고 퍼가기가 허용된 영상이어야 합니다. 화면 녹화로 30초~1분짜리 `sample.mp4`를 만들어 팀에 공유합니다(개발 테스트용).
+- **가장 먼저(시작 30분 안):** README "시연 영상"의 기준대로 시연 영상을 골라 팀 채널에 URL을 공유합니다. A·B·C가 이 영상으로 개발용 `sample.mp4`를 녹화하므로 늦어지면 팀 전체가 기다립니다. 후보 영상을 그대로 써도 됩니다.
 - 프레임워크, 빌드 도구, 외부 라이브러리 없이 `index.html`과 `app.js`, 그리고 `index.html` 안의 `<style>`만 씁니다. server가 `/`에서 서빙하므로 API는 `/api/...` 상대 경로로 호출합니다.
 - 화면 배치: 왼쪽에 **YouTube 플레이어(화면 폭의 60% 이상)**를 둡니다. ESP32가 이 영역을 촬영합니다. 오른쪽에는 실시간 프레임(`<img src="/api/frame?t=...">`), 인원·안전모 미착용·조끼 미착용 수, online/offline 배지, 위반 목록(사진, 시각, 미착용 수)을 둡니다.
 - YouTube:
   - `<script src="https://www.youtube.com/iframe_api">`와 `onYouTubeIframeAPIReady`를 씁니다.
-  - 기본 영상 ID는 `app.js` 상단 상수로 두고, URL 입력란으로 바꿀 수 있게 합니다(`watch?v=`, `youtu.be/`, `shorts/` 형식 파싱).
+  - `app.js` 상단에 `const VIDEOS = [{label: "...", id: "<선정한 영상 ID>"}, ...]`를 두고, 버튼으로 `loadVideoById` 전환합니다. 기본은 첫 번째 영상입니다.
+  - 다른 영상을 시험할 수 있도록 URL 입력란도 둡니다(`watch?v=`, `youtu.be/`, `shorts/` 형식 파싱).
   - `onError`가 101이나 150이면 "퍼가기 금지 영상" 안내를 표시합니다.
   - `playerVars`에 `mute: 1`을 넣고(자동재생 정책), 반복 재생(`loop: 1`, `playlist: <id>`)을 설정합니다.
 - 폴링: 2초마다 `/api/latest`를 가져와 갱신하고, 위반 목록(`/api/events?only_violations=true&limit=20`)은 5초마다 갱신합니다. `frame_ts`가 바뀔 때만 이미지 `src`를 교체합니다. `online`이 false이거나 fetch가 실패하면 offline 배지를 표시합니다.

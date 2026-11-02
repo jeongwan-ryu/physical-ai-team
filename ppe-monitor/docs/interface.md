@@ -1,6 +1,6 @@
 # 팀 간 데이터 인터페이스 명세 (하루 버전)
 
-> 버전: v1.0 (2026-11-02) · 하루 프로젝트용으로 단순화한 버전입니다.
+> 버전: v1.1 (2026-11-02) · 하루 프로젝트용으로 단순화한 버전입니다.
 
 구성요소끼리 **주고받는 데이터 형식**을 정의합니다. 내부 구현은 담당자가 자유롭게 정하되, 이 문서에 적힌 경계는 반드시 지킵니다.
 
@@ -73,7 +73,7 @@ GET http://<ESP32_IP>/capture
 
 ## 4. I2. 모델 → edge
 
-- 파일: Hugging Face `Hansung-Cho/yolov8-ppe-detection`의 `best.pt`(YOLOv8n, 입력 640, MIT 라이선스). **변환하지 않고 그대로 씁니다.**
+- 파일: Hugging Face `Hansung-Cho/yolov8-ppe-detection`의 `best.pt`(YOLOv8n, 입력 640, MIT 라이선스). **기본은 변환하지 않고 그대로 씁니다.** Pi에서 너무 느릴 때만 NCNN으로 변환한 폴더(`/models/best_ncnn_model`)를 `MODEL_PATH`로 지정합니다. 이때 코드는 바뀌지 않습니다.
 - 위치: `edge/models/best.pt`. 용량이 커서 Git에는 올리지 않고, 각자 아래 명령으로 내려받습니다.
   ```bash
   curl -L -o edge/models/best.pt https://huggingface.co/Hansung-Cho/yolov8-ppe-detection/resolve/main/best.pt
@@ -236,8 +236,8 @@ server의 데이터 경로는 `/data`로 고정입니다. DB는 `/data/ppe.db`, 
 | `DEVICE_ID` | `pi-01` | |
 | `DEVICE_KEY` | `change-me` | |
 | `SERVER_URL` | `http://host.docker.internal` | EC2를 쓸 때는 `http://<EC2 IP>`. 끝에 `/` 없음 |
-| `SOURCE` | `/data/sample.mp4` | ESP32를 쓸 때는 `http://<ESP32_IP>/capture` |
-| `MODEL_PATH` | `/models/best.pt` | |
+| `SOURCE` | `/data/sample.mp4` | 각자 화면 녹화한 개발용 영상. ESP32를 쓸 때는 `http://<ESP32_IP>/capture` |
+| `MODEL_PATH` | `/models/best.pt` | NCNN으로 변환했다면 `/models/best_ncnn_model` |
 | `IMGSZ` | `640` | Pi에서 느리면 `320` |
 | `CONF_TH` | `0.4` | 보정값 |
 | `HEAD_RATIO` | `0.3` | 보정값 |
