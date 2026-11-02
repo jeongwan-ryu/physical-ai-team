@@ -1,15 +1,22 @@
-# edge: Pi와 노트북에서 동일하게 사용합니다.
-#   cp ../.env.example .env  →  edge 항목 채우기  →  docker compose up -d --build
-# ./models : GitHub Release에서 받은 모델 폴더 (읽기 전용)
-# ./data   : 전송 대기열(queue.db), failed.jsonl, sample.mp4 (gitignore 대상)
+# edge: ultralytics 공식 이미지를 그대로 쓰고, 코드는 폴더를 연결해서 실행합니다 (Dockerfile 없음).
+#   cp .env.example .env  →  docker compose up
+# 노트북: EDGE_BASE=ultralytics/ultralytics:8.4.198-cpu / Pi: ultralytics/ultralytics:8.4.198-arm64
+# 코드를 고치면 docker compose restart 만 하면 됩니다.
 
 services:
   edge:
-    build: .
+    image: ${EDGE_BASE:-ultralytics/ultralytics:8.4.198-cpu}
     restart: unless-stopped
     env_file: .env
+    environment:
+      PYTHONPATH: /edge/app        # main.py와 tests에서 `import compliance` 가능
+      PYTHONUNBUFFERED: "1"
+    working_dir: /edge
+    command: python app/main.py
     volumes:
-      - ./models:/models:ro
-      - ./data:/data
+      - ./app:/edge/app:ro
+      - ./tests:/edge/tests:ro
+      - ./models:/models:ro        # best.pt
+      - ./data:/data               # sample.mp4, events.jsonl
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # 같은 PC에서 띄운 서버에 접속할 때 (Linux)
+      - "host.docker.internal:host-gateway"   # 같은 PC에서 띄운 server에 접속할 때

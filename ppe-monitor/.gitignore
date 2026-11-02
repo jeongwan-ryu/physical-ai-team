@@ -2,14 +2,13 @@
 .env
 secrets.h
 
-# 모델 파일 (GitHub Release로 전달)
+# 모델 (각자 Hugging Face에서 내려받음)
+*.pt
 edge/models/*
 !edge/models/.gitkeep
-*.pt
-*_ncnn_model/
 
-# 실행 중 생기는 파일
-*.db
-data/
-node_modules/
-dist/
+# edge 실행 데이터 (sample.mp4, events.jsonl)
+edge/data/*
+!edge/data/.gitkeep
+
+__pycache__/

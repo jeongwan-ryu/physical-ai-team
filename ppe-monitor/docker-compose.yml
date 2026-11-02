@@ -1,65 +1,17 @@
-# 클라우드 스택: 로컬과 EC2에서 동일하게 사용합니다.
-#   cp .env.example .env  →  값 채우기  →  docker compose up -d --build
-# 외부에 열리는 포트는 caddy의 80뿐입니다(EC2 보안 그룹에서 집 IP만 허용). server의 8000은 개발용으로 이 PC 안(127.0.0.1)에서만 열립니다.
+# server 컨테이너 1개: FastAPI + SQLite + 대시보드 정적 파일. 로컬과 EC2에서 동일하게 사용합니다.
+#   cp .env.example .env  →  docker compose up -d --build  →  http://localhost
+# dashboard/ 폴더를 그대로 연결하므로, 대시보드를 수정하면 다시 빌드할 필요 없이 새로고침만 하면 됩니다.
 
 services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    environment:                     # Caddy에는 필요한 값만 전달 (.env 전체를 넘기지 않음)
-      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
-      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
-    volumes:
-      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - server
-      - dashboard
-
   server:
-    build: ./server                  # uvicorn은 0.0.0.0:8000, worker 1개
+    build: ./server
     restart: unless-stopped
     env_file: .env
-    environment:
-      DATABASE_URL: postgresql://ppe:${POSTGRES_PASSWORD}@db:5432/ppe
-      MEDIA_DIR: /data/media
-    volumes:
-      - media:/data/media            # S3_BUCKET이 비어 있을 때 사진 저장 위치
     ports:
-      - "127.0.0.1:8000:8000"        # 개발용: dashboard의 vite proxy, curl 테스트
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ppe
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ppe
+      - "80:8000"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  dashboard:
-    build:
-      context: ./dashboard           # 빌드 결과를 caddy file-server로 :80에서 서빙
-      args:
-        VITE_API_BASE: ${VITE_API_BASE:-}
-        VITE_YOUTUBE_VIDEO_ID: ${VITE_YOUTUBE_VIDEO_ID}
-    restart: unless-stopped
+      - ./dashboard:/app/static:ro
+      - server-data:/data          # ppe.db, media/ (위반 사진)
 
 volumes:
-  pgdata:
-  media:
-  caddy_data:
-  caddy_config:
+  server-data:
