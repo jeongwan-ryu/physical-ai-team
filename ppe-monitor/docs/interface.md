@@ -156,7 +156,7 @@ Content-Type: image/jpeg
 → 204
 ```
 
-- `FRAME_PUSH_INTERVAL_S`(기본 1초)마다 보냅니다. 실패해도 무시합니다.
+- `FRAME_PUSH_INTERVAL_S`(기본 0.3초)마다 보냅니다. 전송은 백그라운드에서 하고, 이전 프레임을 아직 보내는 중이면 건너뜁니다. 실패해도 무시합니다.
 - server는 **최신 1장만 메모리에** 보관하고, 따로 기록하지 않습니다.
 
 ### 5.3 착용 판정 규칙 (edge 내부. 의미를 공유하기 위해 적어 둠)
@@ -171,7 +171,7 @@ Content-Type: image/jpeg
 ## 6. I4. server → 대시보드
 
 - 대시보드 파일(`dashboard/`)은 server가 `/`에서 직접 서빙합니다. 출처가 같으므로 CORS 설정은 필요 없습니다.
-- 대시보드는 **2초마다 폴링**합니다.
+- 대시보드는 `/api/latest`를 **0.5초마다 폴링**합니다.
 
 ### 6.1 `GET /api/latest`
 
@@ -243,7 +243,7 @@ server의 데이터 경로는 `/data`로 고정입니다. DB는 `/data/ppe.db`, 
 | `HEAD_RATIO` | `0.3` | 보정값 |
 | `CONFIRM_FRAMES` | `3` | 보정값 |
 | `REPORT_INTERVAL_S` | `5` | |
-| `FRAME_PUSH_INTERVAL_S` | `1` | |
+| `FRAME_PUSH_INTERVAL_S` | `0.3` | 대시보드 실시간 화면 갱신 간격 |
 
 ---
 

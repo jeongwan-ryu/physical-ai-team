@@ -1,7 +1,9 @@
 """edge 메인 루프: 캡처 → YOLO 추론 → 착용 판정 → server 전송 (docs/interface.md 기준)."""
 import json
 import os
+import queue
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -109,12 +111,17 @@ def to_jpeg(img):
 
 
 def send_event(meta, jpeg=None):
+    """events.jsonl에 먼저 기록하고, 전송은 백그라운드 스레드에 맡깁니다(루프가 기다리지 않게)."""
     meta_str = json.dumps(meta, ensure_ascii=False)
     try:
         with open(EVENTS_LOG, "a", encoding="utf-8") as f:
             f.write(meta_str + "\n")
     except Exception as e:
         print(f"[edge] events.jsonl 기록 실패: {e}")
+    event_q.put((meta, meta_str, jpeg))
+
+
+def post_event(meta, meta_str, jpeg):
     files = {"meta": (None, meta_str)}
     if jpeg is not None:
         files["image"] = ("frame.jpg", jpeg, "image/jpeg")
@@ -133,6 +140,29 @@ def push_frame(jpeg):
         pass
 
 
+# --- 백그라운드 전송: EC2 왕복(수백 ms) 동안 캡처·추론 루프가 멈추지 않게 합니다 ---
+# 이벤트는 순서대로 전부 보내고(기록), 프레임은 1칸 큐라 전송 중에는 1장만 대기하고 나머지는 버립니다(실시간 화면용).
+event_q = queue.Queue()
+frame_q = queue.Queue(maxsize=1)
+
+
+def _worker(q, fn):
+    while True:
+        fn(*q.get())
+
+
+def start_senders():
+    threading.Thread(target=_worker, args=(event_q, post_event), daemon=True).start()
+    threading.Thread(target=_worker, args=(frame_q, push_frame), daemon=True).start()
+
+
+def queue_frame(jpeg):
+    try:
+        frame_q.put_nowait((jpeg,))
+    except queue.Full:
+        pass  # 이전 프레임을 아직 보내는 중이면 이번 프레임은 건너뜀
+
+
 def main():
     model = YOLO(MODEL_PATH)
     names = model.names
@@ -141,6 +171,7 @@ def main():
         print(f"[edge] 모델에 필요한 클래스 없음: {missing} / names={names}")
         sys.exit(1)
     print(f"[edge] 시작 SOURCE={SOURCE} MODEL={MODEL_PATH} IMGSZ={IMGSZ} SERVER={SERVER_URL}")
+    start_senders()
 
     debouncer = Debouncer(CONFIRM_FRAMES)
     last_report = 0.0
@@ -169,7 +200,7 @@ def main():
         if now - last_push >= FRAME_PUSH_INTERVAL_S:
             jpeg = to_jpeg(drawn)
             if jpeg:
-                push_frame(jpeg)
+                queue_frame(jpeg)
             last_push = now
 
         meta = {"device_id": DEVICE_ID, "ts": ts, "frame_w": w, "frame_h": h, "persons": persons}

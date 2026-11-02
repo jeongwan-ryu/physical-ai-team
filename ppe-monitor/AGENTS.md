@@ -25,7 +25,7 @@ LLM 코딩 도구용 지침입니다. **README.md와 docs/interface.md를 먼저
 | edge는 ultralytics 공식 이미지를 그대로 쓰고 코드는 볼륨으로 연결. Dockerfile 없음 | torch를 빌드하는 시간이 없음. 코드를 고치면 restart만 하면 됨 |
 | server는 컨테이너 1개(FastAPI + 표준 라이브러리 sqlite3)이고, 대시보드도 직접 서빙 | DB 컨테이너, 프록시, 빌드 단계가 없음 |
 | 대시보드는 `index.html` + `app.js`만 사용. 프레임워크와 빌드 도구 없음 | 하루 안에 완성 가능 |
-| 대시보드는 2초 폴링 | 단순함 |
+| 대시보드는 `/api/latest`를 0.5초 폴링(WebSocket 없이). edge는 EC2 전송을 백그라운드 스레드로 하고 프레임을 0.3초마다 보냄 | 단순함. 실시간 화면이 끊겨 보이지 않게 |
 | HTTP만 사용. EC2 보안 그룹에서 80번을 집 IP만 허용 | 시연은 집에서만 함 |
 
 ## 하지 않는 것
@@ -119,7 +119,7 @@ YouTube 영상 다운로드(`yt-dlp` 등)와 코드에서 YouTube URL 읽기, ON
   - 다른 영상을 시험할 수 있도록 URL 입력란도 둡니다(`watch?v=`, `youtu.be/`, `shorts/` 형식 파싱).
   - `onError`가 101이나 150이면 "퍼가기 금지 영상" 안내를 표시합니다.
   - `playerVars`에 `mute: 1`을 넣고(자동재생 정책), 반복 재생(`loop: 1`, `playlist: <id>`)을 설정합니다.
-- 폴링: 2초마다 `/api/latest`를 가져와 갱신하고, 위반 목록(`/api/events?only_violations=true&limit=20`)은 5초마다 갱신합니다. `frame_ts`가 바뀔 때만 이미지 `src`를 교체합니다. `online`이 false이거나 fetch가 실패하면 offline 배지를 표시합니다.
+- 폴링: 0.5초마다 `/api/latest`를 가져와 갱신하고, 위반 목록(`/api/events?only_violations=true&limit=20`)은 5초마다 갱신합니다. `frame_ts`가 바뀔 때만 이미지 `src`를 교체합니다. `online`이 false이거나 fetch가 실패하면 offline 배지를 표시합니다.
 - server가 준비되기 전에는 `python3 -m http.server -d dashboard 8090`으로 열고, 화면 갱신 함수를 `window.render(latest)`로 노출해서 브라우저 콘솔에서 interface 6.1의 예시 JSON으로 테스트합니다. mock 서버는 만들지 않습니다.
 
 ## 검증

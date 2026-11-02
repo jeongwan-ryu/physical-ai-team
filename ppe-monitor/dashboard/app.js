@@ -9,7 +9,7 @@ const VIDEOS = [
   { label: "안전모 미착용", id: "PHezq3zCgGs", start: 31 },
 ];
 
-const LATEST_POLL_MS = 2000;
+const LATEST_POLL_MS = 500;  // 실시간 화면이 끊겨 보이지 않도록 0.5초마다 확인 (frame_ts가 바뀔 때만 이미지 교체)
 const EVENTS_POLL_MS = 5000;
 
 const $ = (id) => document.getElementById(id);
