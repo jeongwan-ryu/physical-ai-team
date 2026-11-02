@@ -35,10 +35,10 @@ PPE(안전모·조끼) 착용 모니터링 서비스의 **구성요소끼리 주
 
 | ID | 보내는 쪽 → 받는 쪽 | 형태 | 담당 |
 |---|---|---|---|
-| I1 | ESP32-CAM → edge | HTTP (edge가 요청해서 가져감) | 1번 ↔ 3번 |
-| I2 | ML → edge | 모델 파일 + 클래스 정의 | 2번 ↔ 3번 |
-| I3 | edge → 서버 | HTTPS REST | 3번 ↔ 4번 |
-| I4 | 서버 → 대시보드 | HTTPS REST | 4번 ↔ 5번 |
+| I1 | ESP32-CAM → edge | HTTP (edge가 요청해서 가져감) | A ↔ C |
+| I2 | ML → edge | 모델 파일 + 클래스 정의 | B ↔ C |
+| I3 | edge → 서버 | HTTPS REST | C ↔ D |
+| I4 | 서버 → 대시보드 | HTTPS REST | D ↔ E |
 
 외부 API는 **YouTube IFrame Player API** 하나뿐이며 대시보드에서만 사용합니다(7장 참고). 이 문서에서 "서버 API"라고 하면 우리가 만드는 `/api/...` 엔드포인트를 뜻합니다.
 
