@@ -38,12 +38,11 @@ YouTube 영상 다운로드(`yt-dlp` 등)와 코드에서 YouTube URL 읽기, ON
 
 - **가장 먼저:** Pi에 Docker를 설치하고(`curl -fsSL https://get.docker.com | sh`), `docker pull ultralytics/ultralytics:8.4.198-arm64`를 실행해 둡니다. 약 1 GB라 시간이 걸립니다.
 - **이미지가 받아지는 대로 FPS 확인:** README의 "Pi 속도 확인" 명령을 실행합니다(이미지 안의 예제 사진 사용). 두 번째 사진의 inference 시간이 1000ms가 넘으면 팀에 알리고 `IMGSZ=320`, 그다음 NCNN 순서로 대응합니다.
-- Arduino IDE에서 `파일 → 예제 → ESP32 → Camera → CameraWebServer`를 `firmware/esp32cam/CameraWebServer/`로 복사합니다.
-  - 카메라 모델은 `CAMERA_MODEL_AI_THINKER`입니다(코어 버전에 따라 `.ino`나 `board_config.h`에 있음).
-  - 보드 설정: `AI Thinker ESP32-CAM`, PSRAM `Enabled`, Partition `Huge APP`
-- Wi-Fi 정보는 `secrets.h`(gitignore 대상)의 `WIFI_SSID`, `WIFI_PASS`에 넣습니다.
-- `setup()`에서 예제의 QVGA 설정 줄을 `s->set_framesize(s, FRAMESIZE_VGA); s->set_quality(s, 12);`로 바꿉니다. 노출은 자동으로 시작하고, 화면이 너무 밝거나 어두울 때만 `set_exposure_ctrl(s, 0)`과 `set_aec_value(s, <값>)`으로 고정합니다.
-- 시리얼 모니터에 출력되는 IP를 팀에 공유합니다. 전원은 5V 2A 이상을 씁니다.
+- **펌웨어는 작성되어 있습니다**(`firmware/esp32cam/CameraWebServer/`). 보드는 **XIAO ESP32S3 Sense**이고, 업로드 방법과 Tools 설정(Board `XIAO_ESP32S3`, PSRAM `OPI PSRAM`)은 `firmware/esp32cam/README.md`를 따릅니다.
+  - `secrets.h.example`을 `secrets.h`로 복사해 Wi-Fi 정보를 넣습니다. `secrets.h`는 커밋하지 않습니다.
+  - 노출은 자동으로 시작합니다. 화면이 너무 밝거나 어두울 때만 `.ino` 상단의 `FIX_EXPOSURE`를 1로 바꾸고 `AEC_VALUE`를 조정합니다.
+  - 펌웨어를 수정할 때는 `CameraWebServer.ino`만 고치고, `app_httpd.cpp`(엔드포인트)는 건드리지 않습니다.
+- 업로드 후 시리얼 모니터의 `edge SOURCE=http://<IP>/capture` 줄을 팀에 공유하고, 공유기에서 IP를 고정합니다.
 - 확인: `curl -o a.jpg http://<ESP32_IP>/capture && file a.jpg`의 결과에 640x480이 나와야 합니다.
 - 오후: 카메라가 대시보드 플레이어 영역을 정면으로 꽉 차게 찍도록 거치합니다. Pi에서 `edge/.env`를 `EDGE_BASE=...-arm64`, `SOURCE=http://<ESP32_IP>/capture`로 설정하고 실행합니다.
 - `docs/demo-setup.md`에 IP, 거치 방법, 노출값을 적습니다.
